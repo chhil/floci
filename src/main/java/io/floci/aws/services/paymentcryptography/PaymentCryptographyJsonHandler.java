@@ -62,6 +62,11 @@ public class PaymentCryptographyJsonHandler {
             case "GetPublicKeyCertificate" -> () -> getPublicKeyCertificate(request, region);
             case "GetParametersForImport" -> () -> getParametersForImport(request, region);
             case "GetParametersForExport" -> () -> getParametersForExport(request, region);
+            case "AddKeyReplicationRegions" -> () -> addKeyReplicationRegions(request, region);
+            case "RemoveKeyReplicationRegions" -> () -> removeKeyReplicationRegions(request, region);
+            case "GetDefaultKeyReplicationRegions" -> () -> getDefaultKeyReplicationRegions(request, region);
+            case "EnableDefaultKeyReplicationRegions" -> () -> enableDefaultKeyReplicationRegions(request, region);
+            case "DisableDefaultKeyReplicationRegions" -> () -> disableDefaultKeyReplicationRegions(request, region);
             case "TagResource" -> () -> tagResource(request, region);
             case "UntagResource" -> () -> untagResource(request, region);
             case "ListTagsForResource" -> () -> listTagsForResource(request, region);
@@ -126,7 +131,8 @@ public class PaymentCryptographyJsonHandler {
             declared.put("DeriveKeyUsage", request.path("DeriveKeyUsage").asText());
         }
         PaymentCryptographyKey key = service.createKey(region, declared, modesOfUse(attributes),
-                request.path("Exportable").asBoolean(false), enabled, tagsOf(request));
+                request.path("Exportable").asBoolean(false), enabled, tagsOf(request),
+                stringsOf(request, "ReplicationRegions"));
         return Map.of("Key", keyObject(key));
     }
 
@@ -155,7 +161,7 @@ public class PaymentCryptographyJsonHandler {
                 Pagination.parseNextToken(request, "NextToken", PAGINATION_ERROR));
         List<Map<String, Object>> keys = new ArrayList<>();
         for (PaymentCryptographyKey key : page.items()) {
-            keys.add(keyObject(key));
+            keys.add(keySummary(key));
         }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("Keys", keys);
@@ -354,15 +360,32 @@ public class PaymentCryptographyJsonHandler {
         return request.path("AliasName").asText();
     }
 
+    /**
+     * A key as a list answers it.
+     *
+     * <p>A list carries the key's summary and not the whole key: its identifier, its state,
+     * its attributes, its check value and the two flags, which is what the model says a
+     * summary holds.
+     */
+    private static Map<String, Object> keySummary(PaymentCryptographyKey key) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("KeyArn", key.getArn());
+        out.put("KeyState", key.getKeyState());
+        out.put("KeyAttributes", keyAttributes(key));
+        out.put("KeyCheckValue", key.getKeyCheckValue());
+        out.put("Enabled", key.isEnabled());
+        out.put("Exportable", key.isExportable());
+        if (key.getMultiRegionKeyType() != null) {
+            out.put("MultiRegionKeyType", key.getMultiRegionKeyType());
+            out.put("PrimaryRegion", key.getPrimaryRegion());
+        }
+        return out;
+    }
+
     private static Map<String, Object> keyObject(PaymentCryptographyKey key) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("KeyArn", key.getArn());
-        Map<String, Object> attributes = new LinkedHashMap<>();
-        attributes.put("KeyAlgorithm", key.getKeyAlgorithm());
-        attributes.put("KeyClass", key.getKeyClass());
-        attributes.put("KeyUsage", key.getKeyUsage());
-        attributes.put("KeyModesOfUse", answeredModes(key));
-        out.put("KeyAttributes", attributes);
+        out.put("KeyAttributes", keyAttributes(key));
         if (key.getDeriveKeyUsage() != null && !key.getDeriveKeyUsage().isEmpty()) {
             out.put("DeriveKeyUsage", key.getDeriveKeyUsage());
         }
@@ -380,7 +403,29 @@ public class PaymentCryptographyJsonHandler {
         if (key.getDeleteTimestamp() > 0) {
             out.put("DeleteTimestamp", key.getDeleteTimestamp());
         }
+        if (key.getMultiRegionKeyType() != null) {
+            out.put("MultiRegionKeyType", key.getMultiRegionKeyType());
+            out.put("PrimaryRegion", key.getPrimaryRegion());
+            Map<String, Object> status = new LinkedHashMap<>();
+            for (String target : key.getReplicationRegions()) {
+                // The model's replication states are IN_PROGRESS, DELETE_IN_PROGRESS, FAILED
+                // and SYNCHRONIZED. A replica that is there is a key that is in sync.
+                status.put(target, Map.of("Status", "SYNCHRONIZED", "StatusMessage", ""));
+            }
+            out.put("ReplicationStatus", status);
+            out.put("UsingDefaultReplicationRegions", key.isUsingDefaultReplicationRegions());
+        }
         return out;
+    }
+
+    /** The attributes of a key, as the answers carry them. */
+    private static Map<String, Object> keyAttributes(PaymentCryptographyKey key) {
+        Map<String, Object> attributes = new LinkedHashMap<>();
+        attributes.put("KeyAlgorithm", key.getKeyAlgorithm());
+        attributes.put("KeyClass", key.getKeyClass());
+        attributes.put("KeyUsage", key.getKeyUsage());
+        attributes.put("KeyModesOfUse", answeredModes(key));
+        return attributes;
     }
 
     private static Map<String, Object> aliasObject(PaymentCryptographyAlias alias) {
@@ -448,7 +493,8 @@ public class PaymentCryptographyJsonHandler {
                 "imports");
         PaymentCryptographyKey key = service.importKey(region, form, members(material.path(form)),
                 request.path("KeyCheckValueAlgorithm").asText(),
-                request.path("Enabled").asBoolean(true), tagsOf(request));
+                request.path("Enabled").asBoolean(true), tagsOf(request),
+                stringsOf(request, "ReplicationRegions"));
         return Map.of("Key", keyObject(key));
     }
 
@@ -530,5 +576,54 @@ public class PaymentCryptographyJsonHandler {
             return node.asText();
         }
         return node.asText();
+    }
+
+    /**
+     * The key with the regions the request names added to its replication.
+     */
+    private Map<String, Object> addKeyReplicationRegions(JsonNode request, String region) {
+        PaymentCryptographyKey key = service.addKeyReplicationRegions(region,
+                request.path("KeyIdentifier").asText(), stringsOf(request, "ReplicationRegions"));
+        return Map.of("Key", keyObject(key));
+    }
+
+    /**
+     * The key with the regions the request names taken away from its replication.
+     */
+    private Map<String, Object> removeKeyReplicationRegions(JsonNode request, String region) {
+        PaymentCryptographyKey key = service.removeKeyReplicationRegions(region,
+                request.path("KeyIdentifier").asText(), stringsOf(request, "ReplicationRegions"));
+        return Map.of("Key", keyObject(key));
+    }
+
+    /** The regions the account replicates a new key to by default. */
+    private Map<String, Object> getDefaultKeyReplicationRegions(JsonNode request, String region) {
+        return Map.of("EnabledReplicationRegions", service.defaultReplicationRegions());
+    }
+
+    /** Turns the default replication of the account on for the regions the request names. */
+    private Map<String, Object> enableDefaultKeyReplicationRegions(JsonNode request, String region) {
+        return Map.of("EnabledReplicationRegions",
+                service.enableDefaultReplicationRegions(stringsOf(request, "ReplicationRegions")));
+    }
+
+    /** Turns the default replication of the account off for the regions the request names. */
+    private Map<String, Object> disableDefaultKeyReplicationRegions(JsonNode request, String region) {
+        return Map.of("EnabledReplicationRegions",
+                service.disableDefaultReplicationRegions(stringsOf(request, "ReplicationRegions")));
+    }
+
+    /** The strings of a request, such as the replication regions. */
+    private static List<String> stringsOf(JsonNode request, String member) {
+        List<String> values = new ArrayList<>();
+        JsonNode declared = request.get(member);
+        if (declared != null && declared.isArray()) {
+            for (JsonNode value : declared) {
+                if (value.isTextual()) {
+                    values.add(value.textValue());
+                }
+            }
+        }
+        return values;
     }
 }
