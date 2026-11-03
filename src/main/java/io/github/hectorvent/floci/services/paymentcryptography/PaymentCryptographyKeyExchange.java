@@ -4,6 +4,7 @@ import io.github.hectorvent.floci.core.common.AwsException;
 import io.github.hectorvent.floci.services.paymentcryptography.crypto.ConcatKdf;
 import io.github.hectorvent.floci.services.paymentcryptography.crypto.Hex;
 import io.github.hectorvent.floci.services.paymentcryptography.crypto.RsaOaep;
+import io.github.hectorvent.floci.services.paymentcryptography.crypto.Tr34;
 import io.github.hectorvent.floci.services.paymentcryptography.crypto.X509;
 import io.github.hectorvent.floci.services.paymentcryptography.model.PaymentCryptographyKey;
 
@@ -59,15 +60,19 @@ final class PaymentCryptographyKeyExchange {
     static final List<String> EXPORT_FORMS = List.of(
             "Tr31KeyBlock",
             "KeyCryptogram",
-            "DiffieHellmanTr31KeyBlock");
+            "Tr34KeyBlock",
+            "DiffieHellmanTr31KeyBlock",
+            "As2805KeyCryptogram");
 
     /** The forms the import takes, in the order the service lists them. */
     static final List<String> IMPORT_FORMS = List.of(
             "Tr31KeyBlock",
             "KeyCryptogram",
+            "Tr34KeyBlock",
             "RootCertificatePublicKey",
             "TrustedCertificatePublicKey",
-            "DiffieHellmanTr31KeyBlock");
+            "DiffieHellmanTr31KeyBlock",
+            "As2805KeyCryptogram");
 
     /** The key material types that take import parameters. */
     private static final List<String> IMPORT_PARAMETER_TYPES = List.of("KEY_CRYPTOGRAM", "TR34_KEY_BLOCK");
@@ -152,6 +157,8 @@ final class PaymentCryptographyKeyExchange {
         return switch (form) {
             case "Tr31KeyBlock" -> exportTr31(region, key, clear, material);
             case "KeyCryptogram" -> exportCryptogram(region, key, clear, material);
+            case "Tr34KeyBlock" -> exportTr34(region, key, clear, material);
+            case "As2805KeyCryptogram" -> exportAs2805(region, key, clear, material);
             case "DiffieHellmanTr31KeyBlock" -> exportEcdh(region, key, clear, material);
             default -> throw validation("KeyMaterial." + form + " is not a form the service exports ("
                     + String.join(", ", EXPORT_FORMS) + ")");
@@ -349,6 +356,8 @@ final class PaymentCryptographyKeyExchange {
         return switch (form) {
             case "Tr31KeyBlock" -> importTr31(region, material);
             case "KeyCryptogram" -> importCryptogram(material);
+            case "Tr34KeyBlock" -> importTr34(region, material);
+            case "As2805KeyCryptogram" -> importAs2805(region, material);
             case "RootCertificatePublicKey" -> importPublicKey(region, material, "");
             case "TrustedCertificatePublicKey" -> importPublicKey(region, material,
                     text(material, "CertificateAuthorityPublicKeyIdentifier"));
@@ -972,4 +981,287 @@ final class PaymentCryptographyKeyExchange {
                 null, Base64.getEncoder().encodeToString(publicKey.getEncoded()), null,
                 certificatePem(certText), "PUBLIC_KEY");
     }
+
+    /** A TR-34 key block: the key signed by the service and wrapped for the receiver. */
+    private Exported exportTr34(String region, PaymentCryptographyKey key, byte[] clear,
+                                Map<String, Object> material) {
+        String caIdentifier = text(material, "CertificateAuthorityPublicKeyIdentifier");
+        if (caIdentifier.isEmpty()) {
+            throw validation("KeyMaterial.Tr34KeyBlock.CertificateAuthorityPublicKeyIdentifier "
+                    + "is required");
+        }
+        PaymentCryptographyKey caKey = service.findKey(region, caIdentifier);
+        if (caKey == null) {
+            throw notFound(caIdentifier);
+        }
+        PublicKey caPublicKey = publicKeyOf(caKey);
+        if (caPublicKey == null) {
+            throw validation("CertificateAuthorityPublicKeyIdentifier does not reference a "
+                    + "public-key certificate");
+        }
+        String certText = text(material, "WrappingKeyCertificate");
+        if (certText.isEmpty()) {
+            throw validation("KeyMaterial.Tr34KeyBlock.WrappingKeyCertificate is required");
+        }
+        PublicKey wrappingKey = publicKeyUnder(certText, caPublicKey, caKey.getArn());
+        if (!(wrappingKey instanceof RSAKey)) {
+            throw validation("the wrapping key certificate is a " + wrappingKey.getAlgorithm()
+                    + " key, and the key is wrapped under it with RSA-OAEP, which needs an RSA key");
+        }
+        int modulusBits = modulusBitsOf(wrappingKey);
+        String tooWeak = PaymentCryptographyKeyStrength.refusal(
+                PaymentCryptographyKeyStrength.rsaBitsOf(modulusBits),
+                PaymentCryptographyKeyStrength.bitsOf(key.getKeyAlgorithm()),
+                "RSA_" + modulusBits, key.getKeyAlgorithm());
+        if (tooWeak != null) {
+            throw validation(tooWeak);
+        }
+        String format = text(material, "KeyBlockFormat");
+        if (format.isEmpty()) {
+            throw validation("KeyMaterial.Tr34KeyBlock.KeyBlockFormat is required (X9_TR34_2012)");
+        }
+        String token = text(material, "ExportToken");
+        Issued signing = take(exportTokens, token, EXPORT_MATERIAL_TYPE);
+        if (signing == null) {
+            throw notFound(token.isEmpty() ? "(missing)" : token);
+        }
+        String nonce = text(material, "RandomNonce");
+        if (!nonce.isEmpty() && !isHex(nonce)) {
+            throw validation("KeyMaterial.Tr34KeyBlock.RandomNonce must be hexadecimal");
+        }
+        String header = tr31Header(key, clear);
+        byte[] block = Tr34.build(clear, header, nonce.isEmpty() ? null : Hex.decode(nonce),
+                signing.privateKey, wrappingKey, null, signing.certificateDer);
+        return new Exported(Hex.encodeUpper(block), "TR34_KEY_BLOCK", null);
+    }
+
+    /** An AS2805 cryptogram, under a key encryption key. */
+    private Exported exportAs2805(String region, PaymentCryptographyKey key, byte[] clear,
+                                  Map<String, Object> material) {
+        String variantName = text(material, "As2805KeyVariant");
+        PaymentCryptographyAs2805Variant variant =
+                PaymentCryptographyAs2805Variant.from(variantName);
+        if (variant == null) {
+            throw validation("KeyMaterial.As2805KeyCryptogram.As2805KeyVariant '" + variantName
+                    + "' not supported (TERMINAL_MAJOR_KEY_VARIANT_00, "
+                    + "DATA_ENCRYPTION_KEY_VARIANT_22, MESSAGE_AUTHENTICATION_KEY_VARIANT_24, "
+                    + "PIN_ENCRYPTION_KEY_VARIANT_28)");
+        }
+        String wrappingKeyIdentifier = text(material, "WrappingKeyIdentifier");
+        if (wrappingKeyIdentifier.isEmpty()) {
+            throw validation("KeyMaterial.As2805KeyCryptogram.WrappingKeyIdentifier is required");
+        }
+        PaymentCryptographyKey kek = service.findKey(region, wrappingKeyIdentifier);
+        if (kek == null) {
+            throw notFound(wrappingKeyIdentifier);
+        }
+        if (!PaymentCryptographyService.mayWrap(kek)) {
+            throw validation("the key " + kek.getArn() + " does not have the mode of use Wrap, "
+                    + "which it needs to wrap a key cryptogram");
+        }
+        if (!"TR31_K0_KEY_ENCRYPTION_KEY".equals(kek.getKeyUsage())
+                && !"TR31_K1_KEY_BLOCK_PROTECTION_KEY".equals(kek.getKeyUsage())) {
+            // The import insists on a key encryption key, so an export that accepted any other
+            // key would produce something its own import rejects.
+            throw validation("an AS2805 cryptogram is wrapped under a key encryption key, but "
+                    + kek.getArn() + " is " + kek.getKeyUsage());
+        }
+        PaymentCryptographyKeyAlgorithm kekAlgorithm =
+                PaymentCryptographyKeyAlgorithm.from(kek.getKeyAlgorithm());
+        PaymentCryptographyKeyAlgorithm algorithm =
+                PaymentCryptographyKeyAlgorithm.from(key.getKeyAlgorithm());
+        String tooWeak = PaymentCryptographyKeyStrength.refusal(kek.getKeyAlgorithm(),
+                key.getKeyAlgorithm());
+        if (tooWeak != null) {
+            throw validation(tooWeak);
+        }
+        String cryptogram = PaymentCryptographyAs2805Cryptogram.wrap(clear, variant.variantByte(),
+                algorithm, PaymentCryptographyCrypto.fromHex(kek.getKeyMaterialHex()), kekAlgorithm);
+        return new Exported(cryptogram, "KEY_CRYPTOGRAM", kek.getArn());
+    }
+
+    /** A key out of a TR-34 key block. */
+    private Imported importTr34(String region, Map<String, Object> material) {
+        String token = text(material, "ImportToken");
+        Issued issued = take(importTokens, token, "TR34_KEY_BLOCK");
+        if (issued == null) {
+            throw notFound(token.isEmpty() ? "(missing)" : token);
+        }
+        String block = text(material, "WrappedKeyBlock");
+        if (block.isEmpty()) {
+            throw validation("KeyMaterial.Tr34KeyBlock.WrappedKeyBlock is required");
+        }
+        String signingCertificate = text(material, "SigningKeyCertificate");
+        if (signingCertificate.isEmpty()) {
+            throw validation("KeyMaterial.Tr34KeyBlock.SigningKeyCertificate is required");
+        }
+        // The service requires the authority: the signing certificate has to chain to it.
+        String caIdentifier = text(material, "CertificateAuthorityPublicKeyIdentifier");
+        if (caIdentifier.isEmpty()) {
+            throw validation("KeyMaterial.Tr34KeyBlock.CertificateAuthorityPublicKeyIdentifier "
+                    + "is required");
+        }
+        PaymentCryptographyKey caKey = service.findKey(region, caIdentifier);
+        if (caKey == null) {
+            throw notFound(caIdentifier);
+        }
+        PublicKey caPublicKey = publicKeyOf(caKey);
+        if (caPublicKey == null) {
+            throw validation("CertificateAuthorityPublicKeyIdentifier does not reference a "
+                    + "public-key certificate");
+        }
+        requireVerify(caKey, "verifying a certificate");
+        if (text(material, "KeyBlockFormat").isEmpty()) {
+            throw validation("KeyMaterial.Tr34KeyBlock.KeyBlockFormat is required (X9_TR34_2012)");
+        }
+        // The nonce is what binds the block to this exchange: the importer chooses it and
+        // the exporter signs it. An import without one is an import whose freshness is not
+        // checked, and that is refused rather than quietly accepted.
+        String nonce = text(material, "RandomNonce");
+        if (nonce.isEmpty()) {
+            throw validation("KeyMaterial.Tr34KeyBlock.RandomNonce is required");
+        }
+        if (!isHex(nonce)) {
+            throw validation("KeyMaterial.Tr34KeyBlock.RandomNonce must be hexadecimal");
+        }
+        Tr34.Recovered recovered;
+        try {
+            recovered = Tr34.recoverAndVerify(block, issued.privateKey, signingCertificate,
+                    caPublicKey, nonce);
+        } catch (RuntimeException e) {
+            throw validation("the TR-34 key block did not open: " + e.getMessage());
+        }
+        // The header the block carried in the clear names the key: its usage, its mode and
+        // its algorithm.
+        String usageCode = headerField(recovered.header, 5, 2);
+        String algorithmByte = headerField(recovered.header, 7, 1);
+        String mode = headerField(recovered.header, 8, 1);
+        String exportability = headerField(recovered.header, 11, 1);
+        String usage = PaymentCryptographyService.usageName(usageCode);
+        byte[] clear = Hex.decode(recovered.keyHex);
+        String algorithm = algorithmOf(algorithmByte, clear.length);
+        return new Imported(algorithm, usage,
+                PaymentCryptographyService.modesFor(mode, PaymentCryptographyService.isKeyEncryptionKey(usage)),
+                "E".equals(exportability), clear, null, null, null, "SYMMETRIC_KEY");
+    }
+
+    /** A key out of an AS2805 cryptogram. */
+    private Imported importAs2805(String region, Map<String, Object> material) {
+        String variantName = text(material, "As2805KeyVariant");
+        PaymentCryptographyAs2805Variant variant =
+                PaymentCryptographyAs2805Variant.from(variantName);
+        if (variant == null) {
+            throw validation("KeyMaterial.As2805KeyCryptogram.As2805KeyVariant '" + variantName
+                    + "' not supported (TERMINAL_MAJOR_KEY_VARIANT_00, "
+                    + "DATA_ENCRYPTION_KEY_VARIANT_22, MESSAGE_AUTHENTICATION_KEY_VARIANT_24, "
+                    + "PIN_ENCRYPTION_KEY_VARIANT_28)");
+        }
+        String wrappingKeyIdentifier = text(material, "WrappingKeyIdentifier");
+        if (wrappingKeyIdentifier.isEmpty()) {
+            throw validation("KeyMaterial.As2805KeyCryptogram.WrappingKeyIdentifier is required");
+        }
+        PaymentCryptographyKey kek = service.findKey(region, wrappingKeyIdentifier);
+        if (kek == null) {
+            throw notFound(wrappingKeyIdentifier);
+        }
+        if (!"TR31_K0_KEY_ENCRYPTION_KEY".equals(kek.getKeyUsage())
+                && !"TR31_K1_KEY_BLOCK_PROTECTION_KEY".equals(kek.getKeyUsage())) {
+            throw validation("an AS2805 cryptogram is wrapped under a key encryption key, but "
+                    + kek.getArn() + " is " + kek.getKeyUsage());
+        }
+        // The wrapping key opens an incoming cryptogram, so it has to be allowed to unwrap.
+        if (!PaymentCryptographyService.mayUnwrap(kek)) {
+            throw new AwsException("InvalidKeyUsageException",
+                    "the key " + kek.getArn() + " does not have the mode of use Unwrap, which it "
+                            + "needs to unwrap a key", 400);
+        }
+        String cryptogram = text(material, "WrappedKeyCryptogram");
+        if (cryptogram.isEmpty()) {
+            throw validation("KeyMaterial.As2805KeyCryptogram.WrappedKeyCryptogram is required");
+        }
+        String algorithmName = text(material, "KeyAlgorithm");
+        PaymentCryptographyKeyAlgorithm algorithm =
+                PaymentCryptographyKeyAlgorithm.from(algorithmName);
+        if (algorithm == null || !algorithm.symmetric()) {
+            throw validation("KeyAlgorithm '" + algorithmName + "' is not a symmetric algorithm this "
+                    + "service imports (TDES_2KEY, TDES_3KEY, AES_128, AES_192, AES_256)");
+        }
+        PaymentCryptographyKeyAlgorithm kekAlgorithm =
+                PaymentCryptographyKeyAlgorithm.from(kek.getKeyAlgorithm());
+        byte[] clear;
+        try {
+            clear = PaymentCryptographyAs2805Cryptogram.unwrap(cryptogram, variant.variantByte(),
+                    algorithm, PaymentCryptographyCrypto.fromHex(kek.getKeyMaterialHex()),
+                    kekAlgorithm);
+        } catch (RuntimeException e) {
+            throw validation("the AS2805 cryptogram did not open: " + e.getMessage());
+        }
+        Map<String, Object> attributes = object(material, "KeyAttributes");
+        Map<String, Boolean> modes = attributes == null
+                ? Map.of("Encrypt", Boolean.TRUE, "Decrypt", Boolean.TRUE)
+                : modesOf(attributes);
+        String usage = attributes == null ? variant.usage()
+                : String.valueOf(attributes.get("KeyUsage"));
+        boolean exportable = attributes == null || Boolean.TRUE.equals(attributes.get("Exportable"));
+        return new Imported(algorithmName, usage, modes, exportable, clear, null, null, null,
+                "SYMMETRIC_KEY");
+    }
+
+    /** The response of GetParametersForExport. */
+    private Map<String, Object> exportParameters(Issued issued) {
+        String certificate = X509.pemBase64(X509.toPem(issued.certificateDer));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("ExportToken", issued.token);
+        out.put("ParametersValidUntilTimestamp", issued.validUntilMs / 1000);
+        out.put("SigningKeyAlgorithm", issued.algorithm);
+        out.put("SigningKeyCertificate", certificate);
+        // Self-signed, so the chain is the certificate itself.
+        out.put("SigningKeyCertificateChain", certificate);
+        return out;
+    }
+
+    /**
+     * The parameters a counterparty needs to export a key to this service.
+     *
+     * @param materialType the kind of material the counterparty will send
+     * @param algorithm the signing algorithm, one of the RSA ones
+     * @param reuse whether the last parameters for the same pair may be reused
+     */
+    Map<String, Object> parametersForExport(String materialType, String algorithm, boolean reuse) {
+        if (!"TR34_KEY_BLOCK".equals(materialType)) {
+            throw validation("KeyMaterialType '" + materialType + "' does not take export "
+                    + "parameters here (TR34_KEY_BLOCK)");
+        }
+        Integer bits = RSA_BITS.get(algorithm);
+        if (bits == null) {
+            throw validation("SigningKeyAlgorithm '" + algorithm + "' not supported (RSA_2048, "
+                    + "RSA_3072, RSA_4096)");
+        }
+        String key = materialType + "/" + algorithm;
+        if (reuse) {
+            Issued previous = lastExportParameters.get(key);
+            if (previous != null
+                    && previous.validUntilMs - System.currentTimeMillis() > 7L * 24 * 3600 * 1000) {
+                return exportParameters(previous);
+            }
+        }
+        long now = System.currentTimeMillis();
+        KeyPair pair = X509.generateRsaKeyPair(bits);
+        X509.Cert certificate = X509.mintSelfSigned(pair, "floci key-export KDH",
+                Instant.ofEpochMilli(now).minus(1, ChronoUnit.HOURS),
+                Instant.ofEpochMilli(now).plusMillis(exportTokenTtlMs));
+        Issued issued = new Issued(token(), pair.getPrivate(), certificate.der, algorithm,
+                EXPORT_MATERIAL_TYPE, now + exportTokenTtlMs);
+        sweep(exportTokens);
+        exportTokens.put(issued.token, issued);
+        lastExportParameters.put(key, issued);
+        return exportParameters(issued);
+    }
+
+    /**
+     * The certificate of a public key.
+     *
+     * <p>A key that arrived with a certificate keeps it. A key the service made has none, so
+     * it gets a self-signed one over its own public half.
+     */
 }

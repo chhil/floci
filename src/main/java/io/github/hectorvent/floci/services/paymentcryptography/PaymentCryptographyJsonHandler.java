@@ -57,6 +57,9 @@ public class PaymentCryptographyJsonHandler {
             case "DeleteAlias" -> Response.ok(deleteAlias(request, region)).build();
             case "ExportKey" -> Response.ok(exportKey(request, region)).build();
             case "ImportKey" -> Response.ok(importKey(request, region)).build();
+            case "GetParametersForExport" -> Response.ok(getParametersForExport(request, region)).build();
+            case "GetParametersForImport" -> Response.ok(getParametersForImport(request, region)).build();
+            case "GetPublicKeyCertificate" -> Response.ok(getPublicKeyCertificate(request, region)).build();
             case "TagResource" -> Response.ok(tagResource(request, region)).build();
             case "UntagResource" -> Response.ok(untagResource(request, region)).build();
             case "ListTagsForResource" -> Response.ok(listTagsForResource(request, region)).build();
@@ -485,5 +488,37 @@ public class PaymentCryptographyJsonHandler {
             return node.asText();
         }
         return node.asText();
+    }
+
+    /**
+     * The parameters of an export: a signing key and the certificate that names it.
+     */
+    private Map<String, Object> getParametersForExport(JsonNode request, String region) {
+        String materialType = request.path("KeyMaterialType").asText();
+        if (materialType.isEmpty()) {
+            throw new AwsException("ValidationException", "KeyMaterialType is required", 400);
+        }
+        String algorithm = request.path("SigningKeyAlgorithm").asText();
+        if (algorithm.isEmpty()) {
+            throw new AwsException("ValidationException", "SigningKeyAlgorithm is required", 400);
+        }
+        boolean reuse = request.path("ReuseLastGeneratedToken").asBoolean(false);
+        return service.parametersForExport(materialType, algorithm, reuse);
+    }
+
+    /** The parameters of an import: a wrapping key and the certificate that names it. */
+    private Map<String, Object> getParametersForImport(JsonNode request, String region) {
+        String materialType = request.path("KeyMaterialType").asText();
+        if (materialType.isEmpty()) {
+            throw new AwsException("ValidationException", "KeyMaterialType is required", 400);
+        }
+        String algorithm = request.path("WrappingKeyAlgorithm").asText();
+        return service.parametersForImport(materialType, algorithm);
+    }
+
+    /** The certificate of an asymmetric key. */
+    private Map<String, Object> getPublicKeyCertificate(JsonNode request, String region) {
+        PaymentCryptographyKey key = requiredKey(request, region, KEY_IDENTIFIER);
+        return service.publicKeyCertificate(key);
     }
 }
