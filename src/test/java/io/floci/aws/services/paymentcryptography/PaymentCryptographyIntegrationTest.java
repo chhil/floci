@@ -232,17 +232,40 @@ class PaymentCryptographyIntegrationTest {
 
     @Test
     void aRequestNamingAFormTheServiceDoesNotServeIsRefused() {
-        // The TR-34 form is one the model has and this service does not make.
+        // Every form the model's union holds is one the service serves now, so a request
+        // that names a member the union does not hold names no form at all.
         String arn = call("CreateKey", CREATE_KEY)
                 .then().statusCode(200)
                     .extract().path("Key.KeyArn");
 
         call("ExportKey", "{\"ExportKeyIdentifier\":\"" + arn + "\",\"KeyMaterial\":{"
-                + "\"Tr34KeyBlock\":{\"CertificateAuthorityPublicKeyIdentifier\":\"" + arn
-                + "\",\"WrappingKeyCertificate\":\"x\",\"KeyBlockFormat\":\"X9_TR34_2012\"}}}")
+                + "\"Nonsense\":{}}}")
                 .then().statusCode(400)
                     .body("__type", equalTo("ValidationException"))
-                    .body("message", containsString("not a form the service exports"));
+                    .body("message", containsString("must specify exactly one variant"));
+    }
+
+    @Test
+    void theTr34AndAs2805FormsAreServed() {
+        // The TR-34 and the AS2805 forms are ones the service makes now, so a request that
+        // names one is refused for what it is missing and not for naming an unserved form.
+        String arn = call("CreateKey", CREATE_KEY)
+                .then().statusCode(200)
+                    .extract().path("Key.KeyArn");
+
+        call("ExportKey", "{\"ExportKeyIdentifier\":\"" + arn + "\",\"KeyMaterial\":{"
+                + "\"Tr34KeyBlock\":{\"WrappingKeyCertificate\":\"x\","
+                + "\"KeyBlockFormat\":\"X9_TR34_2012\"}}}")
+                .then().statusCode(400)
+                    .body("__type", equalTo("ValidationException"))
+                    .body("message", containsString("CertificateAuthorityPublicKeyIdentifier"));
+
+        call("ExportKey", "{\"ExportKeyIdentifier\":\"" + arn + "\",\"KeyMaterial\":{"
+                + "\"As2805KeyCryptogram\":{\"As2805KeyVariant\":"
+                + "\"PIN_ENCRYPTION_KEY_VARIANT_28\"}}}")
+                .then().statusCode(400)
+                    .body("__type", equalTo("ValidationException"))
+                    .body("message", containsString("WrappingKeyIdentifier"));
     }
 
     @Test
