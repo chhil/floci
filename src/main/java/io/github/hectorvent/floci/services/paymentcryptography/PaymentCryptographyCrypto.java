@@ -199,8 +199,16 @@ final class PaymentCryptographyCrypto {
     }
 
     /**
-     * The ciphertext of a plaintext under a key: the initialization vector and the encrypted
-     * bytes in one blob, which is how the service answers.
+     * The ciphertext of a plaintext under a key.
+     *
+     * <p>The ciphertext is the encrypted bytes alone: the initialization vector travels in
+     * the request's attributes, so the two parties that read each other's ciphertext agree
+     * on the vector rather than find it in the blob.
+     *
+     * @param key the key
+     * @param plaintext the bytes to encrypt
+     * @param random the randomness a fresh vector comes from
+     * @return the encrypted bytes
      */
     static byte[] encryptCbc(byte[] key, byte[] plaintext, SecureRandom random) {
         return encryptCbc(key, plaintext, null, random);
@@ -212,13 +220,13 @@ final class PaymentCryptographyCrypto {
      *
      * <p>A request that names a vector gets the ciphertext under it, so two parties that
      * agree on the vector can read each other's ciphertext. A request that names none gets a
-     * fresh one.
+     * zero vector, which is what the reference uses.
      *
      * @param key the key
      * @param plaintext the bytes to encrypt
-     * @param initializationVector the vector to encrypt under, or null for a fresh one
+     * @param initializationVector the vector to encrypt under, or null for the zero vector
      * @param random the randomness a fresh vector comes from
-     * @return the vector and the encrypted bytes in one blob
+     * @return the encrypted bytes
      */
     static byte[] encryptCbc(byte[] key, byte[] plaintext, byte[] initializationVector,
                              SecureRandom random) {
@@ -226,7 +234,6 @@ final class PaymentCryptographyCrypto {
             byte[] iv;
             if (initializationVector == null) {
                 iv = new byte[IV_LENGTH];
-                random.nextBytes(iv);
             } else {
                 if (initializationVector.length != IV_LENGTH) {
                     throw new IllegalArgumentException("the initialization vector is "
@@ -236,33 +243,34 @@ final class PaymentCryptographyCrypto {
             }
             Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
             cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), new IvParameterSpec(iv));
-            byte[] encrypted = cipher.doFinal(plaintext);
-            byte[] out = new byte[iv.length + encrypted.length];
-            System.arraycopy(iv, 0, out, 0, iv.length);
-            System.arraycopy(encrypted, 0, out, iv.length, encrypted.length);
-            return out;
+            return cipher.doFinal(plaintext);
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("the AES key could not be used", e);
         }
     }
 
     /**
-     * The plaintext of a blob the service encrypted.
+     * The plaintext of a ciphertext the service encrypted.
      *
-     * <p>The blob is the initialization vector and the ciphertext, so the vector is read first
-     * and the rest is decrypted under it. A blob that is not the key's does not decrypt, and
-     * the padding does not hold.
+     * <p>The ciphertext is decrypted under the vector the request names. A ciphertext that is
+     * not the key's does not decrypt, and the padding does not hold.
+     *
+     * @param key the key
+     * @param ciphertext the encrypted bytes
+     * @param initializationVector the vector to decrypt under, or null for the zero vector
+     * @return the plaintext
      */
-    static byte[] decryptCbc(byte[] key, byte[] blob) {
-        if (blob.length <= IV_LENGTH) {
-            throw new IllegalArgumentException("the ciphertext is shorter than the initialization vector");
-        }
+    static byte[] decryptCbc(byte[] key, byte[] ciphertext, byte[] initializationVector) {
         try {
-            byte[] iv = Arrays.copyOfRange(blob, 0, IV_LENGTH);
-            byte[] encrypted = Arrays.copyOfRange(blob, IV_LENGTH, blob.length);
+            byte[] iv = initializationVector == null ? new byte[IV_LENGTH]
+                    : initializationVector.clone();
+            if (iv.length != IV_LENGTH) {
+                throw new IllegalArgumentException("the initialization vector is "
+                        + iv.length + " bytes; it is " + IV_LENGTH);
+            }
             Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new IvParameterSpec(iv));
-            return cipher.doFinal(encrypted);
+            return cipher.doFinal(ciphertext);
         } catch (GeneralSecurityException e) {
             throw new IllegalArgumentException("the ciphertext did not open under the key", e);
         }

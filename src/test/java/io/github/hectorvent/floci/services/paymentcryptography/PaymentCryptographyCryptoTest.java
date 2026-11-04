@@ -85,13 +85,15 @@ class PaymentCryptographyCryptoTest {
         byte[] plaintext = PaymentCryptographyCrypto.fromHex(
                 "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67");
 
-        byte[] blob = PaymentCryptographyCrypto.encryptCbc(key, plaintext, new FixedRandom(
-                PaymentCryptographyCrypto.fromHex("101112131415161718191a1b1c1d1e1f")));
+        byte[] vector = PaymentCryptographyCrypto.fromHex("101112131415161718191a1b1c1d1e1f");
+        byte[] blob = PaymentCryptographyCrypto.encryptCbc(key, plaintext, vector, null);
 
-        assertEquals("101112131415161718191a1b1c1d1e1fb746e4f1bce2352d20440b8a2e0eb8fd6"
-                        + "8c1fcd0d00fcac779ecaadacde7e51a41da205eac66749510362db1c9f3e6d5",
+        // The ciphertext is the encrypted bytes alone: the vector travels beside it, in the
+        // request's attributes.
+        assertEquals("b746e4f1bce2352d20440b8a2e0eb8fd68c1fcd0d00fcac779ecaadacde7e51"
+                        + "a41da205eac66749510362db1c9f3e6d5",
                 PaymentCryptographyCrypto.toHex(blob));
-        assertArrayEquals(plaintext, PaymentCryptographyCrypto.decryptCbc(key, blob));
+        assertArrayEquals(plaintext, PaymentCryptographyCrypto.decryptCbc(key, blob, vector));
     }
 
     @Test
@@ -103,24 +105,26 @@ class PaymentCryptographyCryptoTest {
         // The vector is fixed, so the answer is fixed: with a random one the padding of the
         // wrong key's plaintext can happen to be valid, and the test would fail now and then
         // for no reason.
-        byte[] blob = PaymentCryptographyCrypto.encryptCbc(key, "hello".getBytes(),
-                new FixedRandom(PaymentCryptographyCrypto.fromHex("101112131415161718191a1b1c1d1e1f")));
+        byte[] vector = PaymentCryptographyCrypto.fromHex("101112131415161718191a1b1c1d1e1f");
+        byte[] blob = PaymentCryptographyCrypto.encryptCbc(key, "hello".getBytes(), vector, null);
 
         // The right key opens it, so the refusal below is about the key and not the blob.
-        assertArrayEquals("hello".getBytes(), PaymentCryptographyCrypto.decryptCbc(key, blob));
+        assertArrayEquals("hello".getBytes(),
+                PaymentCryptographyCrypto.decryptCbc(key, blob, vector));
         assertThrows(IllegalArgumentException.class,
-                () -> PaymentCryptographyCrypto.decryptCbc(other, blob));
+                () -> PaymentCryptographyCrypto.decryptCbc(other, blob, vector));
     }
 
     @Test
-    void theEncryptionOfAnEmptyPlaintextIsTheVectorAndThePadding() {
+    void theEncryptionOfAnEmptyPlaintextIsThePaddingAlone() {
         byte[] key = PaymentCryptographyCrypto.fromHex(
                 "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
-        byte[] blob = PaymentCryptographyCrypto.encryptCbc(key, new byte[0], new FixedRandom(
-                PaymentCryptographyCrypto.fromHex("101112131415161718191a1b1c1d1e1f")));
+        byte[] vector = PaymentCryptographyCrypto.fromHex("101112131415161718191a1b1c1d1e1f");
+        byte[] blob = PaymentCryptographyCrypto.encryptCbc(key, new byte[0], vector, null);
 
-        assertEquals(32, blob.length);
-        assertArrayEquals(new byte[0], PaymentCryptographyCrypto.decryptCbc(key, blob));
+        // The padding is a whole block, and the vector is not in the blob.
+        assertEquals(16, blob.length);
+        assertArrayEquals(new byte[0], PaymentCryptographyCrypto.decryptCbc(key, blob, vector));
     }
 
     @Test
