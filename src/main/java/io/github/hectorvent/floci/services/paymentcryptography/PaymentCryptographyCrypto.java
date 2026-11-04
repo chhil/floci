@@ -19,10 +19,10 @@ import java.util.Locale;
  * CMAC check value, and what the reference implementation its samples use
  * computes.
  *
- * <p>The data plane encrypts with AES in CBC mode and the padding the service calls PKCS#5,
- * which is PKCS#7 for a block cipher, and answers with the initialization vector and the
- * ciphertext in one blob. The MAC is the CMAC of the message under the key, cut to the
- * length the caller asks for.
+ * <p>The data plane encrypts with AES in CBC mode and pads no data, so the caller supplies
+ * whole blocks and the ciphertext is as long as the plaintext it holds, and answers with the
+ * initialization vector and the ciphertext in one blob. The MAC is the CMAC of the message under
+ * the key, cut to the length the caller asks for.
  */
 final class PaymentCryptographyCrypto {
 
