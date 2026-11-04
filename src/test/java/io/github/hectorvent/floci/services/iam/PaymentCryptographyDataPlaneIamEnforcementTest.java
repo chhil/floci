@@ -166,6 +166,19 @@ class PaymentCryptographyDataPlaneIamEnforcementTest {
         response.body("CipherText", notNullValue());
     }
 
+    @Test
+    void aKeyIsReadFromThePathWhicheverWayTheRouteIsSpelled() {
+        // The route may end in a slash, and the key is named in the path either way, so the
+        // action is checked on the key and a denial limited to it holds.
+        EnforcementFixtures.putUserPolicy(port(), auth(ADMIN, "iam"), callerName, "p",
+                "{\"Version\":\"2012-10-17\",\"Statement\":["
+                        + "{\"Effect\":\"Allow\",\"Action\":\"*\",\"Resource\":\"*\"},"
+                        + "{\"Effect\":\"Deny\",\"Action\":\"payment-cryptography:EncryptData\","
+                        + "\"Resource\":\"" + keyArn + "\"}]}");
+
+        assertEquals(403, encrypt("/keys/" + keyArn + "/encrypt/").extract().statusCode());
+    }
+
     private void denyEncryptData() {
         EnforcementFixtures.putUserPolicy(port(), auth(ADMIN, "iam"), callerName, "p",
                 "{\"Version\":\"2012-10-17\",\"Statement\":["
@@ -199,14 +212,18 @@ class PaymentCryptographyDataPlaneIamEnforcementTest {
 
     @Test
     void aDenialOnOneKeyIsEnforcedWhenTheReEncryptionNamesIt() {
-        // The re-encryption names the incoming key in the path, and the action is checked on it.
+        // The re-encryption names the incoming key in the path and the outgoing one in the body,
+        // and the action is checked on both, so a denial on either of them holds.
         EnforcementFixtures.putUserPolicy(port(), auth(ADMIN, "iam"), callerName, "p",
                 "{\"Version\":\"2012-10-17\",\"Statement\":["
                         + "{\"Effect\":\"Allow\",\"Action\":\"*\",\"Resource\":\"*\"},"
                         + "{\"Effect\":\"Deny\",\"Action\":\"payment-cryptography:ReEncryptData\","
                         + "\"Resource\":\"" + keyArn + "\"}]}");
 
-        assertEquals(403, reEncrypt("/keys/" + keyArn + "/reencrypt").extract().statusCode());
+        // The denied key is the one the path names, and the body names another.
+        assertEquals(403, reEncrypt("/keys/" + keyArn + "/reencrypt", macKeyArn).extract().statusCode());
+        // The denied key is the one the body names, and the path names another.
+        assertEquals(403, reEncrypt("/keys/" + macKeyArn + "/reencrypt", keyArn).extract().statusCode());
     }
 
     /** The request is made as the caller, whose policy is what is under test. */
@@ -220,10 +237,10 @@ class PaymentCryptographyDataPlaneIamEnforcementTest {
     }
 
     /** The request is made as the caller, whose policy is what is under test. */
-    private ValidatableResponse reEncrypt(String path) {
+    private ValidatableResponse reEncrypt(String path, String outgoingKeyArn) {
         return given().contentType("application/json")
                 .header("Authorization", auth(caller.accessKeyId(), "payment-cryptography"))
-                .body("{\"OutgoingKeyIdentifier\":\"" + keyArn + "\",\"CipherText\":\"" + "00".repeat(16) + "\"}")
+                .body("{\"OutgoingKeyIdentifier\":\"" + outgoingKeyArn + "\",\"CipherText\":\"" + "00".repeat(16) + "\"}")
                 .when().post(path)
                 .then();
     }

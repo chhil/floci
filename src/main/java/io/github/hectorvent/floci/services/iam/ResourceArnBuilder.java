@@ -191,13 +191,6 @@ public class ResourceArnBuilder {
         if (credentialScope == null) {
             return List.of("*");
         }
-        // The Payment Cryptography data plane's requests name their key in the path, which
-        // the vendored table does not read, so the key is read here. The control plane's
-        // operations name their key in the body, which the table does read, so they are left
-        // to it: a key named by an alias is checked on the key the alias names.
-        if ("payment-cryptography".equals(credentialScope) && isPaymentCryptographyDataPlane(operation)) {
-            return List.of(buildPaymentCryptographyArn(ctx, region, accountId, partition));
-        }
         if (operation != null && operation.startsWith(credentialScope + ":") && RequestResources.reads(operation)) {
             return namedResources(credentialScope, operation, ctx, region, accountId, partition);
         }
@@ -1212,106 +1205,6 @@ public class ResourceArnBuilder {
         }
         return taggedResource(ctx);
     }
-
-    /**
-     * Whether the operation belongs to the Payment Cryptography data plane.
-     *
-     * <p>The two planes share the one IAM namespace, and their operations are disjoint: the
-     * data plane's are the ones the AWS SDK's data-plane client sends, which the control
-     * plane's client does not.
-     *
-     * @param operation the operation the request is dispatched as, as {@code <namespace>:<Operation>}
-     * @return whether the operation is one of the data plane's
-     */
-    private static boolean isPaymentCryptographyDataPlane(String operation) {
-        return operation != null && DATA_PLANE_OPERATIONS.contains(operation);
-    }
-
-    /**
-     * The resource of a Payment Cryptography request: the key it acts on.
-     *
-     * <p>The request names the key by its identifier or by its ARN, and the control plane names
-     * it by an alias as well, so the name is resolved to the key's own ARN. A request that
-     * names no key acts on none, and is checked against {@code *}.
-     *
-     * @param ctx the request
-     * @param region the region the request is for
-     * @param accountId the account the request is for
-     * @param partition the partition the request is for
-     * @return the key's ARN, or {@code *} when the request names no key
-     */
-    private String buildPaymentCryptographyArn(ContainerRequestContext ctx, String region,
-                                               String accountId, String partition) {
-        JsonNode body = readJsonBody(ctx);
-        String named = "";
-        if (body != null) {
-            for (String member : KEY_MEMBERS) {
-                named = body.path(member).asText();
-                if (!named.isEmpty()) {
-                    break;
-                }
-            }
-        }
-        if (named.isEmpty()) {
-            // The data plane's routes name the key in the path.
-            String path = IamActionRegistry.decodedPath(ctx);
-            int marker = path.indexOf("/keys/");
-            if (marker >= 0) {
-                String rest = path.substring(marker + "/keys/".length());
-                int end = rest.lastIndexOf('/');
-                named = end > 0 ? rest.substring(0, end) : rest;
-            }
-        }
-        if (named.isEmpty()) {
-            return "*";
-        }
-        // A key named in the path arrives encoded, so the name is read as it was sent.
-        named = URLDecoder.decode(named.replace("+", "%2B"), StandardCharsets.UTF_8);
-        if (AwsArnUtils.looksLikeArn(named)) {
-            return named;
-        }
-        // An alias names the key, and the key's own ARN is what the action is checked on.
-        StoredResourceArns stored = storedResourceArns("payment-cryptography");
-        if (stored != null) {
-            Optional<String> resolved = stored.find("key", List.of(named), region);
-            if (resolved.isPresent()) {
-                return resolved.get();
-            }
-        }
-        return new AwsArnUtils.Arn(partition, "payment-cryptography", region, accountId,
-                "key/" + named).toString();
-    }
-
-    /** The members a Payment Cryptography request names the key in. */
-    private static final List<String> KEY_MEMBERS = List.of(
-            "KeyIdentifier", "EncryptionKeyIdentifier", "GenerationKeyIdentifier",
-            "VerificationKeyIdentifier", "IncomingKeyIdentifier", "OutgoingKeyIdentifier",
-            "WrappingKeyIdentifier", "CertificateAuthorityPublicKeyIdentifier",
-            "ExportKeyIdentifier");
-
-    /**
-     * The Payment Cryptography data plane's operations, as the operations the request is
-     * dispatched as.
-     *
-     * <p>They are the ones of the data-plane client, which the control-plane client does not
-     * send, so a request is told apart by the operation it is dispatched as.
-     */
-    private static final Set<String> DATA_PLANE_OPERATIONS = Set.of(
-            "payment-cryptography:EncryptData",
-            "payment-cryptography:DecryptData",
-            "payment-cryptography:ReEncryptData",
-            "payment-cryptography:GenerateMac",
-            "payment-cryptography:VerifyMac",
-            "payment-cryptography:GeneratePinData",
-            "payment-cryptography:VerifyPinData",
-            "payment-cryptography:TranslatePinData",
-            "payment-cryptography:GenerateCardValidationData",
-            "payment-cryptography:VerifyCardValidationData",
-            "payment-cryptography:GenerateAuthRequestCryptogram",
-            "payment-cryptography:VerifyAuthRequestCryptogram",
-            "payment-cryptography:GenerateAs2805KekValidation",
-            "payment-cryptography:GenerateMacEmvPinChange",
-            "payment-cryptography:TranslateKeyMaterial");
 
     /**
      * The resource of an Aurora DSQL route, as the Service Authorization Reference names it: the cluster

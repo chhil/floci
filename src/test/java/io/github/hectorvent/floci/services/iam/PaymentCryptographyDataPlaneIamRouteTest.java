@@ -73,17 +73,15 @@ class PaymentCryptographyDataPlaneIamRouteTest {
     }
 
     @Test
-    void theRulesAnswerToBothOfTheServiceScopes() {
-        // A client of the data plane signs for the service, which is one scope for both
-        // planes, and a client may sign for the data plane's own scope as well. A rule under
-        // a scope no request carries would never match, and a request that matches no rule
-        // resolves to no action, which the enforcement filter treats as ALLOW.
-        for (String scope : new String[] {"payment-cryptography", "payment-cryptography-data"}) {
-            assertEquals("payment-cryptography:EncryptData",
-                    resolve(scope, "/_paymentcryptography/keys/" + KEY_ID + "/encrypt"));
-            assertEquals("payment-cryptography:EncryptData",
-                    resolve(scope, "/_paymentcryptography/keys/" + KEY_ARN + "/encrypt"));
-        }
+    void theRoutesAreReadUnderTheServicesScope() {
+        // A client of the data plane signs for the service, which is one scope for both of
+        // its planes, and a client that signs for the data plane's own scope is served under
+        // that scope too (see CredentialScopeAliasTest), so the routes are read under the one
+        // scope the actions live in.
+        assertEquals("payment-cryptography:EncryptData",
+                resolve("/_paymentcryptography/keys/" + KEY_ID + "/encrypt"));
+        assertEquals("payment-cryptography:EncryptData",
+                resolve("/_paymentcryptography/keys/" + KEY_ARN + "/encrypt"));
     }
 
     /** The action the registry resolves for a POST to the path, for the service's scope. */
