@@ -25,12 +25,14 @@ class PaymentCryptographyCryptoHandlerTest {
 
     private PaymentCryptographyService service;
     private PaymentCryptographyCryptoHandler handler;
+    private InMemoryStorage<String, PaymentCryptographyKey> keys;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
+        keys = new InMemoryStorage<>();
         service = new PaymentCryptographyService(
-                new InMemoryStorage<>(),
+                keys,
                 new InMemoryStorage<>(),
                 new RegionResolver("us-east-1", "000000000000"));
         handler = new PaymentCryptographyCryptoHandler(service);
@@ -257,6 +259,23 @@ class PaymentCryptographyCryptoHandlerTest {
                 "VerificationAttributes", iso9797())), "us-east-1"));
 
         assertEquals("VerificationFailedException", refused.getErrorCode());
+    }
+
+    @Test
+    void aKeyWhoseMaterialIsNotHeldIsRefusedRatherThanFailing() {
+        // The material is held by the key while the emulator runs and is not written to the
+        // store, so a key read back after a restart has none. A request that needs it is then
+        // refused with an error that says so, and not with a server error.
+        PaymentCryptographyKey key = createKey("Encrypt", "Decrypt");
+        key.setKeyMaterialHex(null);
+        keys.put("us-east-1\u0000" + key.getKeyId(), key);
+
+        AwsException refused = assertThrows(AwsException.class, () -> handler.encryptData(request(Map.of(
+                "KeyIdentifier", key.getArn(), "PlainText", "00".repeat(16),
+                "EncryptionAttributes", cbc())), "us-east-1"));
+
+        assertEquals("ValidationException", refused.getErrorCode());
+        assertTrue(refused.getMessage().contains("material"), refused.getMessage());
     }
 
     @Test

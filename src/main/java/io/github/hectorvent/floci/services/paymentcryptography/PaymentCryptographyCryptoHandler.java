@@ -388,9 +388,39 @@ public class PaymentCryptographyCryptoHandler {
         }
     }
 
-    /** The material of a key. */
+    /**
+     * The material of a key.
+     *
+     * <p>The material is held by the key while the emulator runs and is not written to the
+     * store, so a key read back after a restart has none. A request that needs the material
+     * is then refused with an error that says so, rather than failing on the missing value.
+     *
+     * @param key the key the operation runs under
+     * @return the key's material
+     */
     private static byte[] material(PaymentCryptographyKey key) {
-        return PaymentCryptographyCrypto.fromHex(key.getKeyMaterialHex());
+        return PaymentCryptographyCrypto.fromHex(materialHex(key));
+    }
+
+    /**
+     * The material of a key, as it is held.
+     *
+     * <p>The material is held by the key while the emulator runs and is not written to the
+     * store, so a key read back after a restart has none. A request that needs the material
+     * is then refused with an error that says so, rather than failing on the missing value.
+     *
+     * @param key the key the operation runs under
+     * @return the key's material, as hexadecimal
+     */
+    private static String materialHex(PaymentCryptographyKey key) {
+        String hex = key.getKeyMaterialHex();
+        if (hex == null || hex.isEmpty()) {
+            throw new AwsException("ValidationException",
+                    "the material of the key " + key.getArn() + " is not held: it is kept while the "
+                            + "emulator runs and is not written to the store, so a key read back after "
+                            + "a restart has none", 400);
+        }
+        return hex;
     }
 
     /**
@@ -509,7 +539,7 @@ public class PaymentCryptographyCryptoHandler {
             }
             byte[] derived;
             try {
-                derived = DukptCrypto.macKey(key.getKeyMaterialHex(), ksn);
+                derived = DukptCrypto.macKey(materialHex(key), ksn);
             } catch (RuntimeException e) {
                 throw new AwsException("ValidationException",
                         "DUKPT derivation failed: " + e.getMessage(), 400);
