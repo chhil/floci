@@ -241,7 +241,7 @@ final class PaymentCryptographyCrypto {
                 }
                 iv = initializationVector.clone();
             }
-            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            Cipher cipher = Cipher.getInstance("AES/CBC/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), new IvParameterSpec(iv));
             return cipher.doFinal(plaintext);
         } catch (GeneralSecurityException e) {
@@ -252,8 +252,9 @@ final class PaymentCryptographyCrypto {
     /**
      * The plaintext of a ciphertext the service encrypted.
      *
-     * <p>The ciphertext is decrypted under the vector the request names. A ciphertext that is
-     * not the key's does not decrypt, and the padding does not hold.
+     * <p>The ciphertext is decrypted under the vector the request names. The cipher pads no
+     * data, so a ciphertext that is not a whole number of blocks does not decrypt, and a
+     * ciphertext that is not the key's does not decrypt either.
      *
      * @param key the key
      * @param ciphertext the encrypted bytes
@@ -268,7 +269,7 @@ final class PaymentCryptographyCrypto {
                 throw new IllegalArgumentException("the initialization vector is "
                         + iv.length + " bytes; it is " + IV_LENGTH);
             }
-            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            Cipher cipher = Cipher.getInstance("AES/CBC/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new IvParameterSpec(iv));
             return cipher.doFinal(ciphertext);
         } catch (GeneralSecurityException e) {

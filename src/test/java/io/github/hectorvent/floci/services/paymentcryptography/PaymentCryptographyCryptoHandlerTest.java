@@ -128,7 +128,7 @@ class PaymentCryptographyCryptoHandlerTest {
 
         Map<String, Object> encrypted = handler.encryptData(request(Map.of(
                 "KeyIdentifier", key.getArn(),
-                "PlainText", hex("hello, world".getBytes()),
+                "PlainText", hex("hello, world!!!!".getBytes()),
                 "EncryptionAttributes", cbc())), "us-east-1");
 
         assertEquals(key.getArn(), encrypted.get("KeyArn"));
@@ -140,13 +140,13 @@ class PaymentCryptographyCryptoHandlerTest {
                 "CipherText", cipherText,
                 "DecryptionAttributes", cbc())), "us-east-1");
 
-        assertEquals(hex("hello, world".getBytes()), decrypted.get("PlainText"));
+        assertEquals(hex("hello, world!!!!".getBytes()), decrypted.get("PlainText"));
     }
 
     @Test
     void theCiphertextIsNotThePlaintextAndTheVectorTravelsBesideIt() {
         PaymentCryptographyKey key = createKey("Encrypt", "Decrypt");
-        String plain = hex("the same plaintext".getBytes());
+        String plain = hex("the same data!!!".getBytes());
 
         String first = (String) handler.encryptData(request(Map.of(
                 "KeyIdentifier", key.getArn(), "PlainText", plain,
@@ -171,7 +171,7 @@ class PaymentCryptographyCryptoHandlerTest {
         PaymentCryptographyKey key = createKey("Decrypt");
 
         AwsException refused = assertThrows(AwsException.class, () -> handler.encryptData(request(Map.of(
-                "KeyIdentifier", key.getArn(), "PlainText", hex("xxxxxxxx".getBytes()))), "us-east-1"));
+                "KeyIdentifier", key.getArn(), "PlainText", hex("xxxxxxxxxxxxxxxx".getBytes()))), "us-east-1"));
 
         assertEquals("InvalidKeyUsageException", refused.getErrorCode());
     }
@@ -183,7 +183,7 @@ class PaymentCryptographyCryptoHandlerTest {
         PaymentCryptographyKey pin = createKeyOf("TR31_P0_PIN_ENCRYPTION_KEY", "Encrypt", "Decrypt");
 
         AwsException refused = assertThrows(AwsException.class, () -> handler.encryptData(request(Map.of(
-                "KeyIdentifier", pin.getArn(), "PlainText", hex("xxxxxxxx".getBytes()),
+                "KeyIdentifier", pin.getArn(), "PlainText", hex("xxxxxxxxxxxxxxxx".getBytes()),
                 "EncryptionAttributes", cbc())), "us-east-1"));
 
         assertEquals("InvalidKeyUsageException", refused.getErrorCode());
@@ -191,7 +191,7 @@ class PaymentCryptographyCryptoHandlerTest {
         PaymentCryptographyKey mac = createTdesKey("Generate", "Verify");
 
         AwsException refusedMac = assertThrows(AwsException.class, () -> handler.encryptData(request(Map.of(
-                "KeyIdentifier", mac.getArn(), "PlainText", hex("xxxxxxxx".getBytes()),
+                "KeyIdentifier", mac.getArn(), "PlainText", hex("xxxxxxxxxxxxxxxx".getBytes()),
                 "EncryptionAttributes", cbc())), "us-east-1"));
 
         assertEquals("InvalidKeyUsageException", refusedMac.getErrorCode());
@@ -259,6 +259,46 @@ class PaymentCryptographyCryptoHandlerTest {
                 "VerificationAttributes", iso9797())), "us-east-1"));
 
         assertEquals("VerificationFailedException", refused.getErrorCode());
+    }
+
+    @Test
+    void aPlaintextThatDoesNotFillWholeBlocksIsRefused() {
+        // The cipher pads no data, so the caller supplies whole blocks: a plaintext of
+        // fifteen bytes does not fill an AES block and is refused rather than padded.
+        PaymentCryptographyKey key = createKey("Encrypt", "Decrypt");
+
+        AwsException refused = assertThrows(AwsException.class, () -> handler.encryptData(request(Map.of(
+                "KeyIdentifier", key.getArn(), "PlainText", "00".repeat(15),
+                "EncryptionAttributes", cbc())), "us-east-1"));
+
+        assertEquals("ValidationException", refused.getErrorCode());
+        assertTrue(refused.getMessage().contains("16 bytes"), refused.getMessage());
+    }
+
+    @Test
+    void aCipherTextIsAsLongAsThePlainTextItHolds() {
+        // The cipher pads no data, so a ciphertext is as long as its plaintext.
+        PaymentCryptographyKey key = createKey("Encrypt", "Decrypt");
+        String plaintext = "00".repeat(32);
+
+        Map<String, Object> answer = handler.encryptData(request(Map.of(
+                "KeyIdentifier", key.getArn(), "PlainText", plaintext,
+                "EncryptionAttributes", cbc())), "us-east-1");
+
+        assertEquals(plaintext.length(), ((String) answer.get("CipherText")).length());
+    }
+
+    @Test
+    void aMacLengthThatIsNotANumberIsRefused() {
+        // The protocol carries the length as a number, so a member that is not one is a
+        // malformed request, and not the length the service would compute.
+        PaymentCryptographyKey key = createTdesKey("Generate", "Verify");
+
+        AwsException refused = assertThrows(AwsException.class, () -> handler.generateMac(request(Map.of(
+                "KeyIdentifier", key.getArn(), "MessageData", "00".repeat(16),
+                "GenerationAttributes", iso9797(), "MacLength", "abc")), "us-east-1"));
+
+        assertEquals("ValidationException", refused.getErrorCode());
     }
 
     @Test
@@ -389,7 +429,7 @@ class PaymentCryptographyCryptoHandlerTest {
         PaymentCryptographyKey outgoing = createKey("Encrypt", "Decrypt");
         String cipherText = (String) handler.encryptData(request(Map.of(
                 "KeyIdentifier", incoming.getArn(),
-                "PlainText", hex("moved here".getBytes()),
+                "PlainText", hex("moved over there".getBytes()),
                 "EncryptionAttributes", cbc())), "us-east-1").get("CipherText");
 
         Map<String, Object> reEncrypted = handler.reEncryptData(request(Map.of(
@@ -403,7 +443,7 @@ class PaymentCryptographyCryptoHandlerTest {
                 "KeyIdentifier", outgoing.getArn(),
                 "CipherText", (String) reEncrypted.get("CipherText"),
                 "DecryptionAttributes", cbc())), "us-east-1");
-        assertEquals(hex("moved here".getBytes()), decrypted.get("PlainText"));
+        assertEquals(hex("moved over there".getBytes()), decrypted.get("PlainText"));
     }
 
     @Test
@@ -423,7 +463,7 @@ class PaymentCryptographyCryptoHandlerTest {
         PaymentCryptographyKey key = createKey("NoRestrictions");
 
         Map<String, Object> encrypted = handler.encryptData(request(Map.of(
-                "KeyIdentifier", key.getArn(), "PlainText", hex("xxxxxxxx".getBytes()),
+                "KeyIdentifier", key.getArn(), "PlainText", hex("xxxxxxxxxxxxxxxx".getBytes()),
                 "EncryptionAttributes", cbc())), "us-east-1");
 
         assertTrue(encrypted.containsKey("CipherText"));
@@ -432,7 +472,7 @@ class PaymentCryptographyCryptoHandlerTest {
     @Test
     void thePlainTextIsTheBytesTheCallerGave() {
         PaymentCryptographyKey key = createKey("Encrypt", "Decrypt");
-        byte[] plain = "a longer plaintext that spans a block boundary".getBytes(StandardCharsets.UTF_8);
+        byte[] plain = "a longer plaintext that spans a block boundary!!".getBytes(StandardCharsets.UTF_8);
 
         String cipherText = (String) handler.encryptData(request(Map.of(
                 "KeyIdentifier", key.getArn(), "PlainText", hex(plain),

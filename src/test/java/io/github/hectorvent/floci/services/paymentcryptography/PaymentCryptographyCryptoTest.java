@@ -2,10 +2,13 @@ package io.github.hectorvent.floci.services.paymentcryptography;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -82,16 +85,16 @@ class PaymentCryptographyCryptoTest {
     void theEncryptionIsTheOneAnotherImplementationComputed() {
         byte[] key = PaymentCryptographyCrypto.fromHex(
                 "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
-        byte[] plaintext = PaymentCryptographyCrypto.fromHex(
-                "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67");
+        // The cipher pads no data, so the plaintext is a whole number of blocks.
+        byte[] plaintext = "The quick brown fox jumps over!!".getBytes(StandardCharsets.UTF_8);
 
         byte[] vector = PaymentCryptographyCrypto.fromHex("101112131415161718191a1b1c1d1e1f");
         byte[] blob = PaymentCryptographyCrypto.encryptCbc(key, plaintext, vector, null);
 
         // The ciphertext is the encrypted bytes alone: the vector travels beside it, in the
-        // request's attributes.
-        assertEquals("b746e4f1bce2352d20440b8a2e0eb8fd68c1fcd0d00fcac779ecaadacde7e51"
-                        + "a41da205eac66749510362db1c9f3e6d5",
+        // request's attributes. The value is the one BouncyCastle computes for the same key,
+        // vector and plaintext.
+        assertEquals("b746e4f1bce2352d20440b8a2e0eb8fdf67504d7488d1792588f220540ed23b4",
                 PaymentCryptographyCrypto.toHex(blob));
         assertArrayEquals(plaintext, PaymentCryptographyCrypto.decryptCbc(key, blob, vector));
     }
@@ -101,30 +104,34 @@ class PaymentCryptographyCryptoTest {
         byte[] key = PaymentCryptographyCrypto.fromHex(
                 "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
         byte[] other = PaymentCryptographyCrypto.fromHex(
-                "1f1e1d1c1b1a19181716151413121110f0e0d0c0b0a09080706050403020100");
-        // The vector is fixed, so the answer is fixed: with a random one the padding of the
-        // wrong key's plaintext can happen to be valid, and the test would fail now and then
-        // for no reason.
+                "1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100");
+        // The vector is fixed, so the answer is fixed.
         byte[] vector = PaymentCryptographyCrypto.fromHex("101112131415161718191a1b1c1d1e1f");
-        byte[] blob = PaymentCryptographyCrypto.encryptCbc(key, "hello".getBytes(), vector, null);
+        byte[] plaintext = "a whole block ok".getBytes(StandardCharsets.UTF_8);
+        byte[] blob = PaymentCryptographyCrypto.encryptCbc(key, plaintext, vector, null);
 
-        // The right key opens it, so the refusal below is about the key and not the blob.
-        assertArrayEquals("hello".getBytes(),
-                PaymentCryptographyCrypto.decryptCbc(key, blob, vector));
-        assertThrows(IllegalArgumentException.class,
-                () -> PaymentCryptographyCrypto.decryptCbc(other, blob, vector));
+        // The right key opens it.
+        assertArrayEquals(plaintext, PaymentCryptographyCrypto.decryptCbc(key, blob, vector));
+        // The other key does not: the cipher pads no data, so it reads as the bytes the
+        // ciphertext holds and nothing says they are the plaintext.
+        assertFalse(Arrays.equals(plaintext,
+                PaymentCryptographyCrypto.decryptCbc(other, blob, vector)));
     }
 
     @Test
-    void theEncryptionOfAnEmptyPlaintextIsThePaddingAlone() {
+    void theCipherPadsNoData() {
         byte[] key = PaymentCryptographyCrypto.fromHex(
                 "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
         byte[] vector = PaymentCryptographyCrypto.fromHex("101112131415161718191a1b1c1d1e1f");
-        byte[] blob = PaymentCryptographyCrypto.encryptCbc(key, new byte[0], vector, null);
 
-        // The padding is a whole block, and the vector is not in the blob.
-        assertEquals(16, blob.length);
-        assertArrayEquals(new byte[0], PaymentCryptographyCrypto.decryptCbc(key, blob, vector));
+        // A ciphertext is as long as the plaintext it holds, and the vector is not in it.
+        byte[] plaintext = "a whole block ok".getBytes(StandardCharsets.UTF_8);
+        byte[] blob = PaymentCryptographyCrypto.encryptCbc(key, plaintext, vector, null);
+        assertEquals(plaintext.length, blob.length);
+        assertArrayEquals(plaintext, PaymentCryptographyCrypto.decryptCbc(key, blob, vector));
+
+        // An empty plaintext is an empty ciphertext: there is no padding to add.
+        assertEquals(0, PaymentCryptographyCrypto.encryptCbc(key, new byte[0], vector, null).length);
     }
 
     @Test

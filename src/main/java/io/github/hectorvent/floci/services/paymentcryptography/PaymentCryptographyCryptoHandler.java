@@ -87,8 +87,8 @@ public class PaymentCryptographyCryptoHandler {
     /**
      * Encrypts the plaintext under the key the request names.
      *
-     * <p>The service encrypts with AES in CBC mode and the padding it calls PKCS#5, and
-     * answers with the initialization vector and the ciphertext in one blob.
+     * <p>The service encrypts with AES in CBC mode and pads no data, so the plaintext fills
+     * whole blocks, and answers with the initialization vector and the ciphertext in one blob.
      */
     public Map<String, Object> encryptData(JsonNode request, String region) {
         PaymentCryptographyKey key = requiredKey(request, region, "KeyIdentifier");
@@ -97,6 +97,7 @@ public class PaymentCryptographyCryptoHandler {
         requireCipherFamily(key, "encrypt");
         requireUsage(key, DATA_ENCRYPTION_USAGES, "encrypt data");
         byte[] plaintext = blob(request, "PlainText", SHORTEST_PLAINTEXT, LONGEST_PLAINTEXT);
+        requireBlockAligned(plaintext, key, "PlainText");
         byte[] ciphertext = PaymentCryptographyCrypto.encryptCbc(material(key), plaintext,
                 initializationVector(encryption, key, "encrypting"), random);
         return answer(key, Map.of("CipherText", encode(ciphertext)));
@@ -112,6 +113,7 @@ public class PaymentCryptographyCryptoHandler {
         requireCipherFamily(key, "decrypt");
         requireUsage(key, DATA_ENCRYPTION_USAGES, "decrypt data");
         byte[] ciphertext = blob(request, "CipherText", SHORTEST_CIPHERTEXT, LONGEST_CIPHERTEXT);
+        requireBlockAligned(ciphertext, key, "CipherText");
         byte[] plaintext;
         try {
             plaintext = PaymentCryptographyCrypto.decryptCbc(material(key), ciphertext,
@@ -139,6 +141,7 @@ public class PaymentCryptographyCryptoHandler {
         requireUsage(incoming, DATA_ENCRYPTION_USAGES, "decrypt data");
         requireUsage(outgoing, DATA_ENCRYPTION_USAGES, "encrypt data");
         byte[] ciphertext = blob(request, "CipherText", SHORTEST_CIPHERTEXT, LONGEST_CIPHERTEXT);
+        requireBlockAligned(ciphertext, incoming, "CipherText");
         byte[] plaintext;
         try {
             plaintext = PaymentCryptographyCrypto.decryptCbc(material(incoming), ciphertext,
@@ -146,6 +149,7 @@ public class PaymentCryptographyCryptoHandler {
         } catch (IllegalArgumentException e) {
             throw new AwsException("DecryptFailureException", e.getMessage(), 400);
         }
+        requireBlockAligned(plaintext, outgoing, "the plaintext");
         byte[] reEncrypted = PaymentCryptographyCrypto.encryptCbc(material(outgoing), plaintext,
                 initializationVector(outgoingEncryption, outgoing, "encrypting"), random);
         return answer(outgoing, Map.of("CipherText", encode(reEncrypted)));
@@ -160,7 +164,7 @@ public class PaymentCryptographyCryptoHandler {
         MacLeg leg = resolveMacLeg(request.get("GenerationAttributes"), key, region, "Generate",
                 "generating a MAC with");
         byte[] message = blob(request, "MessageData", 1, 2048);
-        int length = macLength(request, leg);
+        int length = macLength(request, leg, leg.longest);
         byte[] mac = leg.mac.apply(leg.keyBytes, message);
         byte[] answer = new byte[length];
         System.arraycopy(mac, 0, answer, 0, length);
@@ -176,15 +180,15 @@ public class PaymentCryptographyCryptoHandler {
                 "verifying a MAC with");
         byte[] message = blob(request, "MessageData", 1, 2048);
         byte[] mac = blob(request, "Mac", SHORTEST_MAC, LONGEST_CMAC);
-        int length = request.has("MacLength") ? request.path("MacLength").asInt(mac.length) : mac.length;
-        if (length < SHORTEST_MAC || length > leg.longest) {
+        int length = macLength(request, leg, mac.length);
+        if (length != mac.length) {
             throw new AwsException("ValidationException",
-                    "MacLength must be between " + SHORTEST_MAC + " and " + leg.longest, 400);
+                    "MacLength does not match the length of Mac", 400);
         }
         byte[] expected = leg.mac.apply(leg.keyBytes, message);
         byte[] cut = new byte[length];
         System.arraycopy(expected, 0, cut, 0, Math.min(length, expected.length));
-        if (mac.length != length || !MessageDigest.isEqual(cut, mac)) {
+        if (!MessageDigest.isEqual(cut, mac)) {
             // The service does not answer that a MAC is not valid: it fails, because a caller
             // that asks whether a MAC is good gets an error rather than a false.
             throw new AwsException("VerificationFailedException",
@@ -435,6 +439,26 @@ public class PaymentCryptographyCryptoHandler {
      * @param usages the usages the operation serves
      * @param what the operation, for the message
      */
+    /**
+     * The data must fill whole blocks of the key's cipher.
+     *
+     * <p>The cipher pads no data, so the caller supplies whole blocks: a plaintext that does
+     * not fill them is refused, rather than padded into a ciphertext that is longer than the
+     * data it holds.
+     *
+     * @param data the data the request names
+     * @param key the key the cipher runs under, whose cipher sets the block size
+     * @param member the member the data is, for the message
+     */
+    private static void requireBlockAligned(byte[] data, PaymentCryptographyKey key, String member) {
+        int block = isAes(key) ? 16 : 8;
+        if (data.length % block != 0) {
+            throw new AwsException("ValidationException",
+                    member + " must be a multiple of " + block + " bytes (one "
+                            + (isAes(key) ? "AES" : "TDES") + " block)", 400);
+        }
+    }
+
     private static void requireUsage(PaymentCryptographyKey key, List<String> usages, String what) {
         String usage = key.getKeyUsage();
         if (usage == null || usages.contains(usage)) {
@@ -634,9 +658,20 @@ public class PaymentCryptographyCryptoHandler {
         }
     }
 
-    /** The length of the MAC the caller asks for, which the service computes. */
-    private static int macLength(JsonNode request, MacLeg leg) {
-        int length = request.path("MacLength").asInt(leg.longest);
+    /**
+     * The length of the MAC the caller asks for, which the service computes.
+     *
+     * <p>The protocol carries the length as a number, so a member that is not one is a
+     * malformed request rather than a length: it is refused, and not read as the length the
+     * service would compute, which would answer a request the caller did not make.
+     */
+    private static int macLength(JsonNode request, MacLeg leg, int fallback) {
+        JsonNode declared = request.path("MacLength");
+        if (!declared.isMissingNode() && !declared.isNull() && !declared.isIntegralNumber()) {
+            throw new AwsException("ValidationException",
+                    "MacLength must be a whole number of bytes", 400);
+        }
+        int length = declared.asInt(fallback);
         if (length < SHORTEST_MAC || length > leg.longest) {
             throw new AwsException("ValidationException",
                     "MacLength must be between " + SHORTEST_MAC + " and " + leg.longest, 400);
