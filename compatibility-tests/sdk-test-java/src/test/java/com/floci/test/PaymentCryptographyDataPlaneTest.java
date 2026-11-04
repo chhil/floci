@@ -24,8 +24,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("Payment Cryptography data plane")
 class PaymentCryptographyDataPlaneTest {
 
-    /** A plaintext long enough for the service to encrypt it. */
-    private static final String PLAIN_TEXT = hex("the quick brown fox jumps over the lazy dog");
+    /**
+     * A plaintext long enough for the service to encrypt it. The cipher pads no data, so it
+     * fills whole blocks.
+     */
+    private static final String PLAIN_TEXT = hex("the quick brown fox jumps over the lazy dog!!!!!");
 
     /** A message long enough for the service to make a MAC over it. */
     private static final String MESSAGE = hex("a message to authenticate");
