@@ -314,7 +314,10 @@ public class ResolvedServiceCatalog {
                         config.storage().services().paymentcryptography().flushIntervalMs(), null,
                         ServiceProtocol.REST_JSON,
                         protocols(ServiceProtocol.REST_JSON),
-                        Set.of(), Set.of("payment-cryptography-data"), Set.of(),
+                        // The data plane is a rest-json service of its own, and its client
+                        // signs for the service, which is one scope for both of its planes; the
+                        // scope its own plane is named by is an alias of that one.
+                        Set.of(), Set.of("payment-cryptography", "payment-cryptography-data"), Set.of(),
                         Set.of(PaymentCryptographyCryptoController.class)),
                 descriptor("secretsmanager", "secretsmanager", config.services().secretsmanager().enabled(), true,
                         "secretsmanager", storageMode(config.storage().services().secretsmanager().mode(), config.storage().mode()),
