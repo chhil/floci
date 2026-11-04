@@ -38,8 +38,12 @@ class PaymentCryptographyCryptoHandlerTest {
 
     /** A TDES key, which is what the ISO 9797-1 MAC is computed under. */
     private PaymentCryptographyKey createTdesKey(String... modes) {
+        return createTdesKeyOf("TDES_2KEY", modes);
+    }
+
+    private PaymentCryptographyKey createTdesKeyOf(String algorithm, String... modes) {
         Map<String, Object> attributes = new LinkedHashMap<>();
-        attributes.put("KeyAlgorithm", "TDES_2KEY");
+        attributes.put("KeyAlgorithm", algorithm);
         attributes.put("KeyClass", "SYMMETRIC_KEY");
         attributes.put("KeyUsage", "TR31_M6_ISO_9797_5_CMAC_KEY");
         Map<String, Boolean> declared = new LinkedHashMap<>();
@@ -178,6 +182,26 @@ class PaymentCryptographyCryptoHandlerTest {
     @Test
     void aMacIsComputedAndVerified() {
         PaymentCryptographyKey key = createTdesKey("Generate", "Verify");
+        String message = hex("a message".getBytes());
+
+        Map<String, Object> mac = handler.generateMac(request(Map.of(
+                "KeyIdentifier", key.getArn(), "MessageData", message, "MacLength", 8,
+                "GenerationAttributes", iso9797())), "us-east-1");
+        String value = (String) mac.get("Mac");
+
+        assertEquals(8, hexBytes(value).length);
+
+        Map<String, Object> verified = handler.verifyMac(request(Map.of(
+                "KeyIdentifier", key.getArn(), "MessageData", message, "Mac", value, "MacLength", 8,
+                "VerificationAttributes", iso9797())), "us-east-1");
+        assertEquals(key.getArn(), verified.get("KeyArn"));
+    }
+
+    @Test
+    void aMacUnderAThreeKeyTdesKeyIsComputedAndVerified() {
+        // The ISO 9797 MACs are defined over Triple DES, and the cipher takes the three keys
+        // a three-key key holds, so such a key computes a MAC rather than failing.
+        PaymentCryptographyKey key = createTdesKeyOf("TDES_3KEY", "Generate", "Verify");
         String message = hex("a message".getBytes());
 
         Map<String, Object> mac = handler.generateMac(request(Map.of(

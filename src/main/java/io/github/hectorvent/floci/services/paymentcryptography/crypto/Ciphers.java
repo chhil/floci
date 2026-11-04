@@ -31,14 +31,14 @@ public final class Ciphers {
      * The Triple DES encryption of a block under a two-key key, in ECB mode.
      *
      * <p>The two-key form is K1||K2, and the cipher takes three keys, so it is widened to
-     * K1||K2||K1, which is what the two-key form means.
+     * K1||K2||K1, which is what the two-key form means. A three-key key is taken as it is.
      *
      * @param block8 the eight-byte block to encrypt
-     * @param key16 the sixteen-byte key
+     * @param key the sixteen- or twenty-four-byte key
      * @return the encrypted block
      */
-    public static byte[] tdes2Encrypt(byte[] block8, byte[] key16) {
-        return tdes3Encrypt(block8, widenTdesKey(key16));
+    public static byte[] tdes2Encrypt(byte[] block8, byte[] key) {
+        return tdes3Encrypt(block8, widenTdesKey(key));
     }
 
     /**
@@ -87,18 +87,24 @@ public final class Ciphers {
 
     /**
      * A two-key Triple DES key widened to the three the cipher takes, by appending its own
-     * first eight bytes: K1||K2 becomes K1||K2||K1.
+     * first eight bytes: K1||K2 becomes K1||K2||K1. A three-key key is taken as it is.
      *
-     * @param key16 the sixteen-byte key
+     * @param key the sixteen- or twenty-four-byte key
      * @return the twenty-four-byte key
      */
-    public static byte[] widenTdesKey(byte[] key16) {
-        if (key16 == null || key16.length != 16) {
-            throw new IllegalArgumentException("the key is "
-                    + (key16 == null ? "missing" : key16.length + " bytes") + "; it is 16");
+    public static byte[] widenTdesKey(byte[] key) {
+        if (key == null) {
+            throw new IllegalArgumentException("key is required");
         }
-        byte[] wide = Arrays.copyOf(key16, 24);
-        System.arraycopy(key16, 0, wide, 16, 8);
+        if (key.length == 24) {
+            return key;
+        }
+        if (key.length != 16) {
+            throw new IllegalArgumentException("the Triple DES key is " + key.length
+                    + " bytes; it is 16 or 24");
+        }
+        byte[] wide = Arrays.copyOf(key, 24);
+        System.arraycopy(key, 0, wide, 16, 8);
         return wide;
     }
 
