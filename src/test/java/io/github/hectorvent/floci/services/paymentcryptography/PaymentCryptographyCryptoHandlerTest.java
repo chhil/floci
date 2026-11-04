@@ -54,10 +54,14 @@ class PaymentCryptographyCryptoHandlerTest {
     }
 
     private PaymentCryptographyKey createKey(String... modes) {
+        return createKeyOf("TR31_D0_SYMMETRIC_DATA_ENCRYPTION_KEY", modes);
+    }
+
+    private PaymentCryptographyKey createKeyOf(String usage, String... modes) {
         Map<String, Object> attributes = new LinkedHashMap<>();
         attributes.put("KeyAlgorithm", "AES_256");
         attributes.put("KeyClass", "SYMMETRIC_KEY");
-        attributes.put("KeyUsage", "TR31_D0_SYMMETRIC_DATA_ENCRYPTION_KEY");
+        attributes.put("KeyUsage", usage);
         Map<String, Boolean> declared = new LinkedHashMap<>();
         for (String mode : modes) {
             declared.put(mode, Boolean.TRUE);
@@ -168,6 +172,27 @@ class PaymentCryptographyCryptoHandlerTest {
                 "KeyIdentifier", key.getArn(), "PlainText", hex("xxxxxxxx".getBytes()))), "us-east-1"));
 
         assertEquals("InvalidKeyUsageException", refused.getErrorCode());
+    }
+
+    @Test
+    void aKeyOfAnotherPurposeRefuses() {
+        // A PIN encryption key may encrypt a PIN block and nothing else, so it does not encrypt
+        // arbitrary data, and a MAC key does not either.
+        PaymentCryptographyKey pin = createKeyOf("TR31_P0_PIN_ENCRYPTION_KEY", "Encrypt", "Decrypt");
+
+        AwsException refused = assertThrows(AwsException.class, () -> handler.encryptData(request(Map.of(
+                "KeyIdentifier", pin.getArn(), "PlainText", hex("xxxxxxxx".getBytes()),
+                "EncryptionAttributes", cbc())), "us-east-1"));
+
+        assertEquals("InvalidKeyUsageException", refused.getErrorCode());
+
+        PaymentCryptographyKey mac = createTdesKey("Generate", "Verify");
+
+        AwsException refusedMac = assertThrows(AwsException.class, () -> handler.encryptData(request(Map.of(
+                "KeyIdentifier", mac.getArn(), "PlainText", hex("xxxxxxxx".getBytes()),
+                "EncryptionAttributes", cbc())), "us-east-1"));
+
+        assertEquals("InvalidKeyUsageException", refusedMac.getErrorCode());
     }
 
     @Test
