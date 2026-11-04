@@ -39,6 +39,10 @@ public class PaymentCryptographyCryptoHandler {
             "TR31_M6_ISO_9797_5_CMAC_KEY",
             "TR31_M7_HMAC_KEY");
 
+    /** The usages a key may have for the derivation a DUKPT MAC key is made by. */
+    private static final List<String> DERIVATION_USAGES = List.of(
+            "TR31_B0_BASE_DERIVATION_KEY");
+
     /** The shortest MAC the service computes, in bytes. */
     private static final int SHORTEST_MAC = 4;
 
@@ -481,8 +485,10 @@ public class PaymentCryptographyCryptoHandler {
         }
         if ("DukptIso9797Algorithm1".equals(variant) || "DukptIso9797Algorithm3".equals(variant)) {
             // A DUKPT MAC key is derived from the base derivation key, so that is what the key
-            // has to allow.
+            // has to allow, and the derivation is over Triple DES, so the key is one.
             requireMode(key, "DeriveKey", "deriving a MAC key");
+            requireUsage(key, DERIVATION_USAGES, "deriving a MAC key");
+            requireFamily(key, false, "deriving a MAC key");
             JsonNode variantAttributes = attributes.get(variant);
             String ksn = text(variantAttributes, "KeySerialNumber");
             if (!isHex(ksn)) {
@@ -494,6 +500,12 @@ public class PaymentCryptographyCryptoHandler {
                 throw new AwsException("ValidationException",
                         variant + ".DukptKeyVariant '" + keyVariant
                                 + "' not supported by this service (REQUEST)", 400);
+            }
+            String derivationType = text(variantAttributes, "DukptDerivationType");
+            if (!derivationType.isEmpty() && !"TDES_2KEY".equals(derivationType)) {
+                throw new AwsException("ValidationException",
+                        variant + ".DukptDerivationType '" + derivationType
+                                + "' not supported by this service (TDES_2KEY)", 400);
             }
             byte[] derived;
             try {

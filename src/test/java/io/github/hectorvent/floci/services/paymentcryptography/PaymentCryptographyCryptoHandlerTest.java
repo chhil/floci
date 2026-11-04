@@ -269,6 +269,101 @@ class PaymentCryptographyCryptoHandlerTest {
         assertEquals("ValidationException", refused.getErrorCode());
     }
 
+    /** The MAC attributes of a DUKPT MAC, derived from a base derivation key. */
+    private static JsonNode dukpt(String variant) {
+        ObjectMapper mapper = new ObjectMapper();
+        ObjectNode dukpt = mapper.createObjectNode();
+        dukpt.put("KeySerialNumber", "9876543210");
+        dukpt.put("DukptKeyVariant", "REQUEST");
+        dukpt.put("DukptDerivationType", "TDES_2KEY");
+        ObjectNode attributes = mapper.createObjectNode();
+        attributes.set(variant, dukpt);
+        return attributes;
+    }
+
+    /** The base derivation key the DUKPT MAC is derived from. */
+    private PaymentCryptographyKey createBaseDerivationKey(String algorithm, String... modes) {
+        Map<String, Object> attributes = new LinkedHashMap<>();
+        attributes.put("KeyAlgorithm", algorithm);
+        attributes.put("KeyClass", "SYMMETRIC_KEY");
+        attributes.put("KeyUsage", "TR31_B0_BASE_DERIVATION_KEY");
+        Map<String, Boolean> declared = new LinkedHashMap<>();
+        for (String mode : modes) {
+            declared.put(mode, Boolean.TRUE);
+        }
+        return service.createKey("us-east-1", attributes, declared, true, true, Map.of());
+    }
+
+    @Test
+    void aDukptMacIsComputedAndVerifiedUnderABaseDerivationKey() {
+        // The DUKPT MAC key is derived from the base derivation key, so that is the key the
+        // request names, and it derives rather than computes the MAC itself.
+        PaymentCryptographyKey key = createBaseDerivationKey("TDES_2KEY", "DeriveKey");
+        String message = hex("a message".getBytes());
+
+        Map<String, Object> mac = handler.generateMac(request(Map.of(
+                "KeyIdentifier", key.getArn(), "MessageData", message, "MacLength", 8,
+                "GenerationAttributes", dukpt("DukptIso9797Algorithm1"))), "us-east-1");
+        String value = (String) mac.get("Mac");
+
+        assertEquals(8, hexBytes(value).length);
+
+        Map<String, Object> verified = handler.verifyMac(request(Map.of(
+                "KeyIdentifier", key.getArn(), "MessageData", message, "Mac", value, "MacLength", 8,
+                "VerificationAttributes", dukpt("DukptIso9797Algorithm1"))), "us-east-1");
+        assertEquals(key.getArn(), verified.get("KeyArn"));
+    }
+
+    @Test
+    void aDukptMacUnderAKeyThatMayNotDeriveRefuses() {
+        // The key is named by the request but may only compute MACs of its own, so it cannot
+        // be the base a DUKPT MAC key is derived from.
+        PaymentCryptographyKey key = createTdesKey("Generate", "Verify");
+
+        AwsException refused = assertThrows(AwsException.class, () -> handler.generateMac(request(Map.of(
+                "KeyIdentifier", key.getArn(), "MessageData", hex("a message".getBytes()), "MacLength", 8,
+                "GenerationAttributes", dukpt("DukptIso9797Algorithm1"))), "us-east-1"));
+
+        assertEquals("InvalidKeyUsageException", refused.getErrorCode());
+    }
+
+    @Test
+    void aDukptMacUnderAKeyOfAnotherPurposeRefuses() {
+        // The key may derive, but it is a data encryption key rather than a base derivation
+        // key, so it is not one a DUKPT MAC key is derived from.
+        PaymentCryptographyKey key = createKeyOf("TR31_D0_SYMMETRIC_DATA_ENCRYPTION_KEY", "DeriveKey");
+
+        AwsException refused = assertThrows(AwsException.class, () -> handler.generateMac(request(Map.of(
+                "KeyIdentifier", key.getArn(), "MessageData", hex("a message".getBytes()), "MacLength", 8,
+                "GenerationAttributes", dukpt("DukptIso9797Algorithm1"))), "us-east-1"));
+
+        assertEquals("InvalidKeyUsageException", refused.getErrorCode());
+    }
+
+    @Test
+    void aDukptMacUnderAnAesKeyRefuses() {
+        // The derivation is over Triple DES, so a key of another family is not one.
+        PaymentCryptographyKey key = createBaseDerivationKey("AES_256", "DeriveKey");
+
+        AwsException refused = assertThrows(AwsException.class, () -> handler.generateMac(request(Map.of(
+                "KeyIdentifier", key.getArn(), "MessageData", hex("a message".getBytes()), "MacLength", 8,
+                "GenerationAttributes", dukpt("DukptIso9797Algorithm1"))), "us-east-1"));
+
+        assertEquals("InvalidKeyUsageException", refused.getErrorCode());
+    }
+
+    @Test
+    void aDukptDerivationTypeTheServiceDoesNotDeriveByRefuses() {
+        PaymentCryptographyKey key = createBaseDerivationKey("TDES_2KEY", "DeriveKey");
+        JsonNode attributes = dukpt("DukptIso9797Algorithm1");
+        ((ObjectNode) attributes.path("DukptIso9797Algorithm1")).put("DukptDerivationType", "AES_256");
+        AwsException refused = assertThrows(AwsException.class, () -> handler.generateMac(request(Map.of(
+                "KeyIdentifier", key.getArn(), "MessageData", hex("a message".getBytes()), "MacLength", 8,
+                "GenerationAttributes", attributes)), "us-east-1"));
+
+        assertEquals("ValidationException", refused.getErrorCode());
+    }
+
     @Test
     void aKeyReEncryptsUnderAnotherKey() {
         PaymentCryptographyKey incoming = createKey("Encrypt", "Decrypt");
