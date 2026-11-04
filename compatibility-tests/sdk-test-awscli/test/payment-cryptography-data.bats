@@ -15,7 +15,7 @@ teardown() {
     for key in "$KEY_ARN" "$MAC_KEY_ARN"; do
         if [ -n "$key" ]; then
             aws_cmd payment-cryptography delete-key --key-identifier "$key" \
-                --pending-window-in-days 7 >/dev/null 2>&1 || true
+                --delete-key-in-days 7 >/dev/null 2>&1 || true
         fi
     done
 }
