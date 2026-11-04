@@ -52,11 +52,16 @@ service, so a path-style request for a bucket of that name still reaches S3.
 ```bash
 export AWS_ENDPOINT_URL=http://localhost:4566
 
+# A key of the data encryption usage
 KEY_ARN=$(aws payment-cryptography create-key \
-  --cli-input-json file://key.json --query Key.KeyArn --output text)
+  --key-attributes 'KeyAlgorithm=AES_256,KeyClass=SYMMETRIC_KEY,KeyUsage=TR31_D0_SYMMETRIC_DATA_ENCRYPTION_KEY,KeyModesOfUse={Encrypt=true,Decrypt=true}' \
+  --exportable \
+  --query Key.KeyArn --output text)
 
+# Encrypt under it. The cipher pads no data, so the plaintext is a whole number of
+# blocks: sixteen bytes for an AES key.
 aws payment-cryptography-data encrypt-data \
   --key-identifier "$KEY_ARN" \
-  --plain-text "$(printf 'hello' | xxd -p -c 32)" \
+  --plain-text "$(printf 'hello world!!!!!' | xxd -p -c 32)" \
   --encryption-attributes '{"Symmetric":{"Mode":"CBC"}}'
 ```
