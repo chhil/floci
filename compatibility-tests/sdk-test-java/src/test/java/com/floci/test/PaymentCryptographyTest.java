@@ -80,6 +80,25 @@ class PaymentCryptographyTest {
         return key;
     }
 
+    /**
+     * A Triple DES key, whose check value is the ANSI X9.24 one.
+     *
+     * <p>The key is created here because creating it computes that value, and the cipher
+     * behind it is the one the native image has to carry.
+     */
+    private static Key createTdesKey() {
+        Key key = client.createKey(r -> r
+                .keyAttributes(a -> a
+                        .keyAlgorithm(KeyAlgorithm.TDES_2KEY)
+                        .keyClass(KeyClass.SYMMETRIC_KEY)
+                        .keyUsage(KeyUsage.TR31_D0_SYMMETRIC_DATA_ENCRYPTION_KEY)
+                        .keyModesOfUse(m -> m.encrypt(true).decrypt(true)))
+                .exportable(true))
+                .key();
+        keyArns.add(key.keyArn());
+        return key;
+    }
+
     /** The key identifier of an ARN: the part after the last slash. */
     private static String keyIdOf(String arn) {
         return arn.substring(arn.lastIndexOf('/') + 1);
@@ -111,6 +130,24 @@ class PaymentCryptographyTest {
         assertThat(read.keyAttributes().keyModesOfUse().encrypt()).isTrue();
         assertThat(read.keyAttributes().keyModesOfUse().decrypt()).isTrue();
         assertThat(read.keyCheckValue()).isEqualTo(created.keyCheckValue());
+    }
+
+    @Test
+    void aTripleDesKeyIsCreatedAndItsCheckValueIsTheX924One() {
+        // The check value of a Triple DES key is the ANSI X9.24 one, so it is the leftmost
+        // three bytes of encrypting eight zero bytes with the key. The native image has to
+        // carry that cipher, so the key is created here and the value is read back.
+        Key created = createTdesKey();
+
+        assertThat(created.keyArn()).isNotBlank();
+        assertThat(created.keyState()).isEqualTo(KeyState.CREATE_COMPLETE);
+        assertThat(created.keyCheckValueAlgorithm()).isEqualTo(KeyCheckValueAlgorithm.ANSI_X9_24);
+        assertThat(created.keyCheckValue()).hasSize(6);
+        assertThat(created.keyAttributes().keyAlgorithm()).isEqualTo(KeyAlgorithm.TDES_2KEY);
+
+        Key read = client.getKey(k -> k.keyIdentifier(created.keyArn())).key();
+        assertThat(read.keyCheckValue()).isEqualTo(created.keyCheckValue());
+        assertThat(read.keyCheckValueAlgorithm()).isEqualTo(KeyCheckValueAlgorithm.ANSI_X9_24);
     }
 
     @Test

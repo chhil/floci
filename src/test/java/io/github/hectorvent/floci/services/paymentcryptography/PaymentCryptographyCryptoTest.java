@@ -170,6 +170,18 @@ class PaymentCryptographyCryptoTest {
         assertNotNull(PaymentCryptographyCrypto.checkValue(material));
     }
 
+    @Test
+    void theTripleDesCheckValueIsTheLeftmostThreeBytesOfTheEncryptedZeroes() {
+        // The check value of a Triple DES key is the ANSI X9.24 one: the leftmost three
+        // bytes of encrypting eight zero bytes with the key. The two-key form is widened to
+        // K1||K2||K1 first, which is what the three-key cipher takes.
+        assertEquals("08D7B4", PaymentCryptographyCrypto.checkValue(
+                "0123456789ABCDEFFEDCBA9876543210", PaymentCryptographyKeyAlgorithm.TDES_2KEY));
+        assertEquals("3FD539", PaymentCryptographyCrypto.checkValue(
+                "0123456789ABCDEFFEDCBA987654321089ABCDEF01234567",
+                PaymentCryptographyKeyAlgorithm.TDES_3KEY));
+    }
+
     private static String mac(String messageHex) {
         return PaymentCryptographyCrypto.toHex(PaymentCryptographyCrypto.cmac(
                 PaymentCryptographyCrypto.fromHex(RFC4493_KEY),

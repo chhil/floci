@@ -95,32 +95,21 @@ final class PaymentCryptographyCrypto {
     }
 
     /**
-     * The Triple DES encryption of a block under a key, in ECB mode.
+     * The Triple DES encryption of one block under a key, in ECB mode.
      *
      * <p>The check value of a Triple DES key is the leftmost three bytes of the encrypted
      * zeroes, so the block is encrypted and the first three bytes are taken.
      *
-     * @param data the bytes to encrypt
+     * <p>BouncyCastle's cipher is used rather than the JCE's, whose Triple DES is not
+     * registered in the native image: a request that needs it there hangs until the job
+     * is cancelled at its timeout.
+     *
+     * @param block8 the eight-byte block to encrypt
      * @param key the key, sixteen or twenty-four bytes
      * @return the encrypted bytes
      */
-    private static byte[] tdesEcbEncrypt(byte[] data, byte[] key) {
-        try {
-            byte[] key24 = key.length == 24 ? key : widenTdesKey(key);
-            Cipher cipher = Cipher.getInstance("DESede/ECB/NoPadding");
-            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key24, "DESede"));
-            return cipher.doFinal(data);
-        } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("the Triple DES key could not be used", e);
-        }
-    }
-
-    /** A two-key Triple DES key widened to the three the cipher takes. */
-    private static byte[] widenTdesKey(byte[] key) {
-        byte[] wide = new byte[24];
-        System.arraycopy(key, 0, wide, 0, 16);
-        System.arraycopy(key, 0, wide, 16, 8);
-        return wide;
+    private static byte[] tdesEcbEncrypt(byte[] block8, byte[] key) {
+        return Ciphers.tdes3Encrypt(block8, Ciphers.widenTdesKey(key));
     }
 
     /**
