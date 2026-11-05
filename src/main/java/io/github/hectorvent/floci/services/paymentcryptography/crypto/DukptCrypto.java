@@ -1,5 +1,6 @@
 package io.github.hectorvent.floci.services.paymentcryptography.crypto;
 
+import java.util.Arrays;
 import java.util.HexFormat;
 
 /**
@@ -70,7 +71,7 @@ public final class DukptCrypto {
         if (bdk.length != 16) {
             throw new IllegalArgumentException("BDK must be a 16-byte (double-length TDES) key");
         }
-        byte[] left8 = slice(zeroCounter(normalizeKsn(ksnHex)), 0, 8);
+        byte[] left8 = Arrays.copyOfRange(zeroCounter(normalizeKsn(ksnHex)), 0, 8);
         return concat(
                 Ciphers.tdes2Encrypt(left8, bdk),
                 Ciphers.tdes2Encrypt(left8, Ciphers.xor(bdk, KEY_VARIANT)));
@@ -95,7 +96,7 @@ public final class DukptCrypto {
         byte[] key = deriveIpek(bdkHex, ksnHex);
         // The rightmost 8 bytes of the counter-cleared KSN, which become the
         // shift register the counter bits are written into.
-        byte[] reg = slice(zeroCounter(ksn), 2, 10);
+        byte[] reg = Arrays.copyOfRange(zeroCounter(ksn), 2, 10);
         for (int bit = 20; bit >= 0; bit--) {
             int mask = 1 << bit;
             if ((counter & mask) == 0) {
@@ -127,20 +128,14 @@ public final class DukptCrypto {
     public static byte[] dataKey(String bdkHex, String ksnHex) {
         byte[] v = Ciphers.xor(deriveTransactionKey(bdkHex, ksnHex), DATA_REQUEST_MASK);
         return concat(
-                Ciphers.tdes2Encrypt(slice(v, 0, 8), v),
-                Ciphers.tdes2Encrypt(slice(v, 8, 16), v));
+                Ciphers.tdes2Encrypt(Arrays.copyOfRange(v, 0, 8), v),
+                Ciphers.tdes2Encrypt(Arrays.copyOfRange(v, 8, 16), v));
     }
 
     private static byte[] right(byte[] key16, byte[] reg8) {
-        byte[] kl = slice(key16, 0, 8);
-        byte[] kr = slice(key16, 8, 16);
+        byte[] kl = Arrays.copyOfRange(key16, 0, 8);
+        byte[] kr = Arrays.copyOfRange(key16, 8, 16);
         return Ciphers.xor(Ciphers.tdesSingleDesEncrypt(Ciphers.xor(reg8, kr), kl), kr);
-    }
-
-    private static byte[] slice(byte[] b, int from, int to) {
-        byte[] out = new byte[to - from];
-        System.arraycopy(b, from, out, 0, to - from);
-        return out;
     }
 
     private static byte[] concat(byte[]... parts) {

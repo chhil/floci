@@ -3,14 +3,9 @@ package io.github.hectorvent.floci.services.paymentcryptography;
 
 import io.github.hectorvent.floci.services.paymentcryptography.crypto.Ciphers;
 
-import javax.crypto.Cipher;
-import javax.crypto.spec.IvParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
-
-import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.util.Arrays;
-import java.util.Locale;
+import java.util.HexFormat;
 
 /**
  * The cryptography a key record needs: its material, its check value, and the operations the
@@ -29,6 +24,12 @@ import java.util.Locale;
 final class PaymentCryptographyCrypto {
 
     private static final byte[] ZERO_BLOCK = new byte[16];
+
+    /** The hexadecimal the key material is written in. */
+    private static final HexFormat HEX = HexFormat.of();
+
+    /** The hexadecimal a check value is written in: the capitals the reference writes it in. */
+    private static final HexFormat HEX_UPPER = HexFormat.of().withUpperCase();
 
     /** The block size of AES, in bytes. */
     private static final int BLOCK = 16;
@@ -73,7 +74,7 @@ final class PaymentCryptographyCrypto {
                 : tdesEcbEncrypt(new byte[8], key);
         byte[] value = new byte[3];
         System.arraycopy(mac, 0, value, 0, 3);
-        return toHex(value).toUpperCase(Locale.ROOT);
+        return HEX_UPPER.formatHex(value);
     }
 
     /** The check value of a key of that algorithm, from the key's bytes. */
@@ -83,7 +84,7 @@ final class PaymentCryptographyCrypto {
                 : tdesEcbEncrypt(new byte[8], key);
         byte[] value = new byte[3];
         System.arraycopy(mac, 0, value, 0, 3);
-        return toHex(value).toUpperCase(Locale.ROOT);
+        return HEX_UPPER.formatHex(value);
     }
 
     /** The check value of an AES key: the leftmost three bytes of the CMAC of sixteen zero bytes. */
@@ -91,7 +92,7 @@ final class PaymentCryptographyCrypto {
         byte[] mac = cmac(fromHex(keyHex), ZERO_BLOCK);
         byte[] value = new byte[3];
         System.arraycopy(mac, 0, value, 0, 3);
-        return toHex(value).toUpperCase(Locale.ROOT);
+        return HEX_UPPER.formatHex(value);
     }
 
     /**
@@ -120,30 +121,26 @@ final class PaymentCryptographyCrypto {
      * subkey when it is whole and with the second when it is padded.
      */
     static byte[] cmac(byte[] key, byte[] message) {
-        try {
-            byte[] k1 = subkeyOne(key);
-            byte[] k2 = shiftLeft(k1);
-            int blocks = Math.max(1, (message.length + BLOCK - 1) / BLOCK);
-            byte[] last = new byte[BLOCK];
-            int lastLength = message.length - (blocks - 1) * BLOCK;
-            System.arraycopy(message, (blocks - 1) * BLOCK, last, 0, lastLength);
-            if (lastLength == BLOCK) {
-                last = xor(last, k1);
-            } else {
-                // The padding of a partial block is a one bit and zeroes, as the standard says.
-                last[lastLength] = (byte) 0x80;
-                last = xor(last, k2);
-            }
-            byte[] state = new byte[BLOCK];
-            for (int i = 0; i < blocks - 1; i++) {
-                byte[] block = new byte[BLOCK];
-                System.arraycopy(message, i * BLOCK, block, 0, BLOCK);
-                state = encrypt(xor(state, block), key);
-            }
-            return encrypt(xor(state, last), key);
-        } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("the AES key could not be used", e);
+        byte[] k1 = subkeyOne(key);
+        byte[] k2 = shiftLeft(k1);
+        int blocks = Math.max(1, (message.length + BLOCK - 1) / BLOCK);
+        byte[] last = new byte[BLOCK];
+        int lastLength = message.length - (blocks - 1) * BLOCK;
+        System.arraycopy(message, (blocks - 1) * BLOCK, last, 0, lastLength);
+        if (lastLength == BLOCK) {
+            last = Ciphers.xor(last, k1);
+        } else {
+            // The padding of a partial block is a one bit and zeroes, as the standard says.
+            last[lastLength] = (byte) 0x80;
+            last = Ciphers.xor(last, k2);
         }
+        byte[] state = new byte[BLOCK];
+        for (int i = 0; i < blocks - 1; i++) {
+            byte[] block = new byte[BLOCK];
+            System.arraycopy(message, i * BLOCK, block, 0, BLOCK);
+            state = Ciphers.aesEcbEncrypt(Ciphers.xor(state, block), key);
+        }
+        return Ciphers.aesEcbEncrypt(Ciphers.xor(state, last), key);
     }
 
     /**
@@ -154,11 +151,7 @@ final class PaymentCryptographyCrypto {
      * the top.
      */
     private static byte[] subkeyOne(byte[] key) {
-        try {
-            return shiftLeft(encrypt(ZERO_BLOCK, key));
-        } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("the AES key could not be used", e);
-        }
+        return shiftLeft(Ciphers.aesEcbEncrypt(ZERO_BLOCK, key));
     }
 
     /**
@@ -193,22 +186,6 @@ final class PaymentCryptographyCrypto {
     }
 
     /**
-     * The ciphertext of a plaintext under a key.
-     *
-     * <p>The ciphertext is the encrypted bytes alone: the initialization vector travels in
-     * the request's attributes, so the two parties that read each other's ciphertext agree
-     * on the vector rather than find it in the blob.
-     *
-     * @param key the key
-     * @param plaintext the bytes to encrypt
-     * @param random the randomness a fresh vector comes from
-     * @return the encrypted bytes
-     */
-    static byte[] encryptCbc(byte[] key, byte[] plaintext, SecureRandom random) {
-        return encryptCbc(key, plaintext, null, random);
-    }
-
-    /**
      * The ciphertext of a plaintext under a key, with the initialization vector the request
      * names.
      *
@@ -219,19 +196,10 @@ final class PaymentCryptographyCrypto {
      * @param key the key
      * @param plaintext the bytes to encrypt
      * @param initializationVector the vector to encrypt under, or null for the zero vector
-     * @param random the randomness a fresh vector comes from
      * @return the encrypted bytes
      */
-    static byte[] encryptCbc(byte[] key, byte[] plaintext, byte[] initializationVector,
-                             SecureRandom random) {
-        try {
-            byte[] iv = vector(initializationVector, IV_LENGTH);
-            Cipher cipher = Cipher.getInstance("AES/CBC/NoPadding");
-            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), new IvParameterSpec(iv));
-            return cipher.doFinal(plaintext);
-        } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("the AES key could not be used", e);
-        }
+    static byte[] encryptCbc(byte[] key, byte[] plaintext, byte[] initializationVector) {
+        return aesCbcEncrypt(key, vector(initializationVector, IV_LENGTH), plaintext);
     }
 
     /**
@@ -247,14 +215,7 @@ final class PaymentCryptographyCrypto {
      * @return the plaintext
      */
     static byte[] decryptCbc(byte[] key, byte[] ciphertext, byte[] initializationVector) {
-        try {
-            byte[] iv = vector(initializationVector, IV_LENGTH);
-            Cipher cipher = Cipher.getInstance("AES/CBC/NoPadding");
-            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new IvParameterSpec(iv));
-            return cipher.doFinal(ciphertext);
-        } catch (GeneralSecurityException e) {
-            throw new IllegalArgumentException("the ciphertext did not open under the key", e);
-        }
+        return aesCbcDecrypt(key, vector(initializationVector, IV_LENGTH), ciphertext);
     }
 
     /**
@@ -303,28 +264,24 @@ final class PaymentCryptographyCrypto {
      * key was the right one.
      */
     static byte[] keyWrap(byte[] key, byte[] plaintext) {
-        try {
-            byte[] a = INITIAL_VALUE.clone();
-            byte[][] r = split(plaintext, 8);
-            int n = r.length;
-            for (int j = 0; j < 6; j++) {
-                for (int i = 0; i < n; i++) {
-                    byte[] block = concat(a, r[i]);
-                    byte[] encrypted = encrypt(block, key);
-                    a = Arrays.copyOfRange(encrypted, 0, 8);
-                    r[i] = Arrays.copyOfRange(encrypted, 8, encrypted.length);
-                    a = xor(a, counter(j, n, i));
-                }
-            }
-            byte[] out = new byte[8 + plaintext.length];
-            System.arraycopy(a, 0, out, 0, 8);
+        byte[] a = INITIAL_VALUE.clone();
+        byte[][] r = split(plaintext, 8);
+        int n = r.length;
+        for (int j = 0; j < 6; j++) {
             for (int i = 0; i < n; i++) {
-                System.arraycopy(r[i], 0, out, 8 + i * 8, 8);
+                byte[] block = concat(a, r[i]);
+                byte[] encrypted = Ciphers.aesEcbEncrypt(block, key);
+                a = Arrays.copyOfRange(encrypted, 0, 8);
+                r[i] = Arrays.copyOfRange(encrypted, 8, encrypted.length);
+                a = Ciphers.xor(a, counter(j, n, i));
             }
-            return out;
-        } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("the AES key could not be used", e);
         }
+        byte[] out = new byte[8 + plaintext.length];
+        System.arraycopy(a, 0, out, 0, 8);
+        for (int i = 0; i < n; i++) {
+            System.arraycopy(r[i], 0, out, 8 + i * 8, 8);
+        }
+        return out;
     }
 
     /**
@@ -334,27 +291,23 @@ final class PaymentCryptographyCrypto {
         if (wrapped.length < 16 || (wrapped.length - 8) % 8 != 0) {
             return null;
         }
-        try {
-            byte[] a = Arrays.copyOfRange(wrapped, 0, 8);
-            byte[][] r = split(Arrays.copyOfRange(wrapped, 8, wrapped.length), 8);
-            int n = r.length;
-            for (int j = 5; j >= 0; j--) {
-                for (int i = n - 1; i >= 0; i--) {
-                    byte[] block = concat(xor(a, counter(j, n, i)), r[i]);
-                    byte[] decrypted = decrypt(block, key);
-                    a = Arrays.copyOfRange(decrypted, 0, 8);
-                    r[i] = Arrays.copyOfRange(decrypted, 8, decrypted.length);
-                }
+        byte[] a = Arrays.copyOfRange(wrapped, 0, 8);
+        byte[][] r = split(Arrays.copyOfRange(wrapped, 8, wrapped.length), 8);
+        int n = r.length;
+        for (int j = 5; j >= 0; j--) {
+            for (int i = n - 1; i >= 0; i--) {
+                byte[] block = concat(Ciphers.xor(a, counter(j, n, i)), r[i]);
+                byte[] decrypted = Ciphers.aesEcbDecrypt(block, key);
+                a = Arrays.copyOfRange(decrypted, 0, 8);
+                r[i] = Arrays.copyOfRange(decrypted, 8, decrypted.length);
             }
-            byte[] check = INITIAL_VALUE;
-            byte[] out = new byte[wrapped.length - 8];
-            for (int i = 0; i < n; i++) {
-                System.arraycopy(r[i], 0, out, i * 8, 8);
-            }
-            return Arrays.equals(a, check) ? out : null;
-        } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("the AES key could not be used", e);
         }
+        byte[] check = INITIAL_VALUE;
+        byte[] out = new byte[wrapped.length - 8];
+        for (int i = 0; i < n; i++) {
+            System.arraycopy(r[i], 0, out, i * 8, 8);
+        }
+        return Arrays.equals(a, check) ? out : null;
     }
 
     /**
@@ -383,77 +336,33 @@ final class PaymentCryptographyCrypto {
         return out;
     }
 
-    private static byte[] xor(byte[] left, byte[] right) {
-        byte[] out = new byte[left.length];
-        for (int i = 0; i < left.length; i++) {
-            out[i] = (byte) (left[i] ^ right[i % right.length]);
-        }
-        return out;
-    }
-
     /**
      * The AES-CBC encryption of data under a key and an initialization vector, without
      * padding: the vector is the length of the data's block size already.
      */
     static byte[] aesCbcEncrypt(byte[] key, byte[] iv, byte[] data) {
-        try {
-            Cipher cipher = Cipher.getInstance("AES/CBC/NoPadding");
-            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), new IvParameterSpec(iv));
-            return cipher.doFinal(data);
-        } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("the AES key could not be used", e);
-        }
+        return Ciphers.aesCbcEncrypt(data, key, iv);
     }
 
     /** The AES-CBC decryption of data under a key and an initialization vector, without padding. */
     static byte[] aesCbcDecrypt(byte[] key, byte[] iv, byte[] data) {
         try {
-            Cipher cipher = Cipher.getInstance("AES/CBC/NoPadding");
-            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new IvParameterSpec(iv));
-            return cipher.doFinal(data);
-        } catch (GeneralSecurityException e) {
+            return Ciphers.aesCbcDecrypt(data, key, iv);
+        } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("the data did not decrypt under the key", e);
         }
     }
 
     /** One block of AES in ECB mode. */
     static byte[] aesEcbEncrypt(byte[] input, byte[] key) {
-        try {
-            return encrypt(input, key);
-        } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("the AES key could not be used", e);
-        }
-    }
-
-    /** One block of AES in ECB mode. */
-    private static byte[] encrypt(byte[] input, byte[] key) throws GeneralSecurityException {
-        Cipher cipher = Cipher.getInstance("AES/ECB/NoPadding");
-        cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"));
-        return cipher.doFinal(input);
-    }
-
-    /** One block of AES in ECB mode, the other way round. */
-    private static byte[] decrypt(byte[] input, byte[] key) throws GeneralSecurityException {
-        Cipher cipher = Cipher.getInstance("AES/ECB/NoPadding");
-        cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"));
-        return cipher.doFinal(input);
+        return Ciphers.aesEcbEncrypt(input, key);
     }
 
     static String toHex(byte[] bytes) {
-        StringBuilder sb = new StringBuilder(bytes.length * 2);
-        for (byte b : bytes) {
-            sb.append(Character.forDigit((b >> 4) & 0x0f, 16));
-            sb.append(Character.forDigit(b & 0x0f, 16));
-        }
-        return sb.toString();
+        return HEX.formatHex(bytes);
     }
 
     static byte[] fromHex(String hex) {
-        int length = hex.length() / 2;
-        byte[] out = new byte[length];
-        for (int i = 0; i < length; i++) {
-            out[i] = (byte) Integer.parseInt(hex.substring(i * 2, i * 2 + 2), 16);
-        }
-        return out;
+        return HEX.parseHex(hex);
     }
 }

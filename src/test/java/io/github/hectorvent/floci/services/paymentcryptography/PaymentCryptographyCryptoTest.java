@@ -1,5 +1,6 @@
 package io.github.hectorvent.floci.services.paymentcryptography;
 
+import io.github.hectorvent.floci.services.paymentcryptography.crypto.Ciphers;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -89,7 +90,7 @@ class PaymentCryptographyCryptoTest {
         byte[] plaintext = "The quick brown fox jumps over!!".getBytes(StandardCharsets.UTF_8);
 
         byte[] vector = PaymentCryptographyCrypto.fromHex("101112131415161718191a1b1c1d1e1f");
-        byte[] blob = PaymentCryptographyCrypto.encryptCbc(key, plaintext, vector, null);
+        byte[] blob = PaymentCryptographyCrypto.encryptCbc(key, plaintext, vector);
 
         // The ciphertext is the encrypted bytes alone: the vector travels beside it, in the
         // request's attributes. The value is the one BouncyCastle computes for the same key,
@@ -108,7 +109,7 @@ class PaymentCryptographyCryptoTest {
         // The vector is fixed, so the answer is fixed.
         byte[] vector = PaymentCryptographyCrypto.fromHex("101112131415161718191a1b1c1d1e1f");
         byte[] plaintext = "a whole block ok".getBytes(StandardCharsets.UTF_8);
-        byte[] blob = PaymentCryptographyCrypto.encryptCbc(key, plaintext, vector, null);
+        byte[] blob = PaymentCryptographyCrypto.encryptCbc(key, plaintext, vector);
 
         // The right key opens it.
         assertArrayEquals(plaintext, PaymentCryptographyCrypto.decryptCbc(key, blob, vector));
@@ -134,6 +135,36 @@ class PaymentCryptographyCryptoTest {
     }
 
     @Test
+    void theIso9797MacsAreTheOnesFipsPub113Publishes() {
+        // The ISO 9797-1 worked example, with equal key halves: both algorithms collapse to
+        // the single-DES CBC-MAC, so one published value pins both chains and the padding.
+        byte[] key = PaymentCryptographyCrypto.fromHex("0123456789ABCDEF0123456789ABCDEF");
+        byte[] message = "7654321 Now is the time for ".getBytes(StandardCharsets.US_ASCII);
+
+        assertEquals("f1d30f6849312ca4",
+                PaymentCryptographyCrypto.toHex(Ciphers.iso9797Alg1(key, message)));
+        assertEquals("f1d30f6849312ca4",
+                PaymentCryptographyCrypto.toHex(Ciphers.iso9797Alg3(key, message)));
+    }
+
+    @Test
+    void theIso9797MacsAreTheOnesAnotherImplementationComputed() {
+        // The two-key regression locks, which are the distinct-halves path the published
+        // example does not reach.
+        byte[] key = PaymentCryptographyCrypto.fromHex("0123456789ABCDEFFEDCBA9876543210");
+        byte[] message = "7654321 Now is the time for ".getBytes(StandardCharsets.US_ASCII);
+
+        assertEquals("e5e7a413c3e3f4b5",
+                PaymentCryptographyCrypto.toHex(Ciphers.iso9797Alg1(key, message)));
+        assertEquals("ae4b45b1b527642f",
+                PaymentCryptographyCrypto.toHex(Ciphers.iso9797Alg3(key, message)));
+        // Over an empty message the algorithm 3 MAC is the Triple DES of a zero block, whose
+        // leftmost three bytes are the independently documented X9.24 check value of the key.
+        assertEquals("08d7b4fb629d0885",
+                PaymentCryptographyCrypto.toHex(Ciphers.iso9797Alg3(key, new byte[0])));
+    }
+
+    @Test
     void aTwoKeyTripleDesKeyIsUsedUnderTheThreeKeysItHolds() {
         byte[] two = PaymentCryptographyCrypto.fromHex("000102030405060708090a0b0c0d0e0f");
         byte[] three = PaymentCryptographyCrypto.fromHex(
@@ -153,12 +184,12 @@ class PaymentCryptographyCryptoTest {
 
         // A ciphertext is as long as the plaintext it holds, and the vector is not in it.
         byte[] plaintext = "a whole block ok".getBytes(StandardCharsets.UTF_8);
-        byte[] blob = PaymentCryptographyCrypto.encryptCbc(key, plaintext, vector, null);
+        byte[] blob = PaymentCryptographyCrypto.encryptCbc(key, plaintext, vector);
         assertEquals(plaintext.length, blob.length);
         assertArrayEquals(plaintext, PaymentCryptographyCrypto.decryptCbc(key, blob, vector));
 
         // An empty plaintext is an empty ciphertext: there is no padding to add.
-        assertEquals(0, PaymentCryptographyCrypto.encryptCbc(key, new byte[0], vector, null).length);
+        assertEquals(0, PaymentCryptographyCrypto.encryptCbc(key, new byte[0], vector).length);
     }
 
     @Test

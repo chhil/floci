@@ -2,8 +2,8 @@ package io.github.hectorvent.floci.services.paymentcryptography;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.hectorvent.floci.core.common.AwsException;
+import io.github.hectorvent.floci.services.paymentcryptography.crypto.Ciphers;
 import io.github.hectorvent.floci.services.paymentcryptography.crypto.DukptCrypto;
-import io.github.hectorvent.floci.services.paymentcryptography.crypto.IsoMac;
 import io.github.hectorvent.floci.services.paymentcryptography.model.PaymentCryptographyKey;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -14,7 +14,6 @@ import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -42,6 +41,9 @@ public class PaymentCryptographyCryptoHandler {
     /** The usages a key may have for the derivation a DUKPT MAC key is made by. */
     private static final List<String> DERIVATION_USAGES = List.of(
             "TR31_B0_BASE_DERIVATION_KEY");
+
+    /** The hexadecimal the blobs of the protocol carry themselves in. */
+    private static final HexFormat HEX = HexFormat.of().withUpperCase();
 
     /** The block size of AES, in bytes: the block the cipher works in. */
     private static final int AES_BLOCK = 16;
@@ -382,7 +384,7 @@ public class PaymentCryptographyCryptoHandler {
     private byte[] encrypt(byte[] key, byte[] plaintext, byte[] initializationVector,
                            PaymentCryptographyKey record) {
         return isAes(record)
-                ? PaymentCryptographyCrypto.encryptCbc(key, plaintext, initializationVector, random)
+                ? PaymentCryptographyCrypto.encryptCbc(key, plaintext, initializationVector)
                 : PaymentCryptographyCrypto.tdesCbcEncrypt(key, plaintext, initializationVector);
     }
 
@@ -565,13 +567,13 @@ public class PaymentCryptographyCryptoHandler {
                 requireUsage(key, MAC_USAGES, what);
                 // The ISO 9797 MACs are defined over Triple DES, so the key is one.
                 requireFamily(key, false, what);
-                return new MacLeg(IsoMac::alg1, material(key), LONGEST_MAC);
+                return new MacLeg(Ciphers::iso9797Alg1, material(key), LONGEST_MAC);
             }
             if ("ISO9797_ALGORITHM3".equals(algorithm)) {
                 requireMode(key, mode, what);
                 requireUsage(key, MAC_USAGES, what);
                 requireFamily(key, false, what);
-                return new MacLeg(IsoMac::alg3, material(key), LONGEST_MAC);
+                return new MacLeg(Ciphers::iso9797Alg3, material(key), LONGEST_MAC);
             }
             if ("CMAC".equals(algorithm)) {
                 // The CMAC is the AES-CMAC of RFC 4493, which is a whole block
@@ -618,7 +620,7 @@ public class PaymentCryptographyCryptoHandler {
                         "DUKPT derivation failed: " + e.getMessage(), 400);
             }
             return new MacLeg("DukptIso9797Algorithm1".equals(variant)
-                    ? IsoMac::alg1 : IsoMac::alg3, derived, LONGEST_MAC);
+                    ? Ciphers::iso9797Alg1 : Ciphers::iso9797Alg3, derived, LONGEST_MAC);
         }
         throw new AwsException("ValidationException",
                 "MacAttributes." + variant + " not supported by this service", 400);
@@ -668,19 +670,17 @@ public class PaymentCryptographyCryptoHandler {
         return declared == null || declared.isNull() ? "" : declared.asText("");
     }
 
-    /** Whether the text is hexadecimal. */
+    /** Whether the text is hexadecimal: a whole number of pairs of hexadecimal digits. */
     private static boolean isHex(String value) {
-        if (value == null || value.isEmpty() || value.length() % 2 != 0) {
+        if (value == null || value.isEmpty()) {
             return false;
         }
-        for (int i = 0; i < value.length(); i++) {
-            char c = value.charAt(i);
-            boolean hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
-            if (!hex) {
-                return false;
-            }
+        try {
+            HexFormat.of().parseHex(value);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
         }
-        return true;
     }
 
     /**
@@ -732,6 +732,6 @@ public class PaymentCryptographyCryptoHandler {
 
     /** A blob as the protocol carries it: hexadecimal. */
     private static String encode(byte[] bytes) {
-        return PaymentCryptographyCrypto.toHex(bytes).toUpperCase(Locale.ROOT);
+        return HEX.formatHex(bytes);
     }
 }
