@@ -89,7 +89,7 @@ class PaymentCryptographyTest {
     private static Key createTdesKey() {
         Key key = client.createKey(r -> r
                 .keyAttributes(a -> a
-                        .keyAlgorithm(KeyAlgorithm.TDES_2KEY)
+                        .keyAlgorithm(KeyAlgorithm.TDES_2_KEY)
                         .keyClass(KeyClass.SYMMETRIC_KEY)
                         .keyUsage(KeyUsage.TR31_D0_SYMMETRIC_DATA_ENCRYPTION_KEY)
                         .keyModesOfUse(m -> m.encrypt(true).decrypt(true)))
@@ -143,7 +143,7 @@ class PaymentCryptographyTest {
         assertThat(created.keyState()).isEqualTo(KeyState.CREATE_COMPLETE);
         assertThat(created.keyCheckValueAlgorithm()).isEqualTo(KeyCheckValueAlgorithm.ANSI_X9_24);
         assertThat(created.keyCheckValue()).hasSize(6);
-        assertThat(created.keyAttributes().keyAlgorithm()).isEqualTo(KeyAlgorithm.TDES_2KEY);
+        assertThat(created.keyAttributes().keyAlgorithm()).isEqualTo(KeyAlgorithm.TDES_2_KEY);
 
         Key read = client.getKey(k -> k.keyIdentifier(created.keyArn())).key();
         assertThat(read.keyCheckValue()).isEqualTo(created.keyCheckValue());
