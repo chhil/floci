@@ -296,14 +296,7 @@ final class PaymentCryptographyCrypto {
      * @return the encrypted bytes
      */
     static byte[] tdesCbcEncrypt(byte[] key, byte[] plaintext, byte[] initializationVector) {
-        try {
-            Cipher cipher = Cipher.getInstance("DESede/CBC/NoPadding");
-            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(Ciphers.widenTdesKey(key), "DESede"),
-                    new IvParameterSpec(vector(initializationVector, TDES_IV_LENGTH)));
-            return cipher.doFinal(plaintext);
-        } catch (GeneralSecurityException e) {
-            throw new IllegalArgumentException("the Triple DES key could not be used", e);
-        }
+        return Ciphers.tdesCbcEncrypt(plaintext, key, vector(initializationVector, TDES_IV_LENGTH));
     }
 
     /**
@@ -315,14 +308,7 @@ final class PaymentCryptographyCrypto {
      * @return the plaintext
      */
     static byte[] tdesCbcDecrypt(byte[] key, byte[] ciphertext, byte[] initializationVector) {
-        try {
-            Cipher cipher = Cipher.getInstance("DESede/CBC/NoPadding");
-            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(Ciphers.widenTdesKey(key), "DESede"),
-                    new IvParameterSpec(vector(initializationVector, TDES_IV_LENGTH)));
-            return cipher.doFinal(ciphertext);
-        } catch (GeneralSecurityException e) {
-            throw new IllegalArgumentException("the ciphertext did not open under the key", e);
-        }
+        return Ciphers.tdesCbcDecrypt(ciphertext, key, vector(initializationVector, TDES_IV_LENGTH));
     }
 
     /** The vector a cipher starts from, the zero vector when the request names none. */

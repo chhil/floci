@@ -3,7 +3,9 @@ package io.github.hectorvent.floci.services.paymentcryptography.crypto;
 import org.bouncycastle.crypto.BlockCipher;
 import org.bouncycastle.crypto.engines.DESEngine;
 import org.bouncycastle.crypto.engines.DESedeEngine;
+import org.bouncycastle.crypto.modes.CBCBlockCipher;
 import org.bouncycastle.crypto.params.KeyParameter;
+import org.bouncycastle.crypto.params.ParametersWithIV;
 
 import java.util.Arrays;
 
@@ -64,6 +66,34 @@ public final class Ciphers {
     }
 
     /**
+     * The Triple DES encryption of data under a two-key key, in CBC mode.
+     *
+     * <p>The two-key form is K1||K2, and the cipher takes three keys, so it is widened to
+     * K1||K2||K1, which is what the two-key form means. A three-key key is taken as it is.
+     * The cipher pads no data, so the data fills whole blocks of eight bytes.
+     *
+     * @param data the data to encrypt, a whole number of blocks
+     * @param key the sixteen- or twenty-four-byte key
+     * @param iv8 the eight-byte vector to encrypt under
+     * @return the encrypted bytes
+     */
+    public static byte[] tdesCbcEncrypt(byte[] data, byte[] key, byte[] iv8) {
+        return tdesCbc(true, data, key, iv8);
+    }
+
+    /**
+     * The Triple DES decryption of data under a two-key key, in CBC mode.
+     *
+     * @param data the encrypted bytes, a whole number of blocks
+     * @param key the sixteen- or twenty-four-byte key
+     * @param iv8 the eight-byte vector to decrypt under
+     * @return the plaintext
+     */
+    public static byte[] tdesCbcDecrypt(byte[] data, byte[] key, byte[] iv8) {
+        return tdesCbc(false, data, key, iv8);
+    }
+
+    /**
      * The exclusive-or of two byte arrays of the same length.
      *
      * @param a the first bytes
@@ -106,6 +136,31 @@ public final class Ciphers {
         byte[] wide = Arrays.copyOf(key, 24);
         System.arraycopy(key, 0, wide, 16, 8);
         return wide;
+    }
+
+    /**
+     * The encryption or decryption of whole blocks under a key, in CBC mode.
+     */
+    private static byte[] tdesCbc(boolean encrypt, byte[] data, byte[] key, byte[] iv8) {
+        if (data == null || data.length == 0 || data.length % BLOCK != 0) {
+            throw new IllegalArgumentException("the data is "
+                    + (data == null ? "missing" : data.length + " bytes") + "; it is a whole number of "
+                    + BLOCK + "-byte blocks");
+        }
+        if (key == null) {
+            throw new IllegalArgumentException("key is required");
+        }
+        if (iv8 == null || iv8.length != BLOCK) {
+            throw new IllegalArgumentException("the initialization vector is "
+                    + (iv8 == null ? "missing" : iv8.length + " bytes") + "; it is " + BLOCK);
+        }
+        CBCBlockCipher cipher = new CBCBlockCipher(new DESedeEngine());
+        cipher.init(encrypt, new ParametersWithIV(new KeyParameter(widenTdesKey(key)), iv8));
+        byte[] out = new byte[data.length];
+        for (int offset = 0; offset < data.length; offset += BLOCK) {
+            cipher.processBlock(data, offset, out, offset);
+        }
+        return out;
     }
 
     /**
