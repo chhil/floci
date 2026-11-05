@@ -40,41 +40,26 @@ class PaymentCryptographyCryptoHandlerTest {
 
     /** A TDES key, which is what the ISO 9797-1 MAC is computed under. */
     private PaymentCryptographyKey createTdesKey(String... modes) {
-        return createTdesKeyOf("TDES_2KEY", modes);
+        return createKeyOf("TDES_2KEY", "TR31_M6_ISO_9797_5_CMAC_KEY", modes);
     }
 
     private PaymentCryptographyKey createTdesKeyOf(String algorithm, String... modes) {
-        Map<String, Object> attributes = new LinkedHashMap<>();
-        attributes.put("KeyAlgorithm", algorithm);
-        attributes.put("KeyClass", "SYMMETRIC_KEY");
-        attributes.put("KeyUsage", "TR31_M6_ISO_9797_5_CMAC_KEY");
-        Map<String, Boolean> declared = new LinkedHashMap<>();
-        for (String mode : modes) {
-            declared.put(mode, Boolean.TRUE);
-        }
-        return service.createKey("us-east-1", attributes, declared, true, true, Map.of());
+        return createKeyOf(algorithm, "TR31_M6_ISO_9797_5_CMAC_KEY", modes);
     }
 
     /** A Triple DES key of the data encryption usage, which the data plane ciphers with. */
     private PaymentCryptographyKey createTdesDataKey(String algorithm, String... modes) {
-        Map<String, Object> attributes = new LinkedHashMap<>();
-        attributes.put("KeyAlgorithm", algorithm);
-        attributes.put("KeyClass", "SYMMETRIC_KEY");
-        attributes.put("KeyUsage", "TR31_D0_SYMMETRIC_DATA_ENCRYPTION_KEY");
-        Map<String, Boolean> declared = new LinkedHashMap<>();
-        for (String mode : modes) {
-            declared.put(mode, Boolean.TRUE);
-        }
-        return service.createKey("us-east-1", attributes, declared, true, true, Map.of());
+        return createKeyOf(algorithm, "TR31_D0_SYMMETRIC_DATA_ENCRYPTION_KEY", modes);
     }
 
     private PaymentCryptographyKey createKey(String... modes) {
-        return createKeyOf("TR31_D0_SYMMETRIC_DATA_ENCRYPTION_KEY", modes);
+        return createKeyOf("AES_256", "TR31_D0_SYMMETRIC_DATA_ENCRYPTION_KEY", modes);
     }
 
-    private PaymentCryptographyKey createKeyOf(String usage, String... modes) {
+    /** A key of the algorithm and the usage a test asks for. */
+    private PaymentCryptographyKey createKeyOf(String algorithm, String usage, String... modes) {
         Map<String, Object> attributes = new LinkedHashMap<>();
-        attributes.put("KeyAlgorithm", "AES_256");
+        attributes.put("KeyAlgorithm", algorithm);
         attributes.put("KeyClass", "SYMMETRIC_KEY");
         attributes.put("KeyUsage", usage);
         Map<String, Boolean> declared = new LinkedHashMap<>();
@@ -193,7 +178,8 @@ class PaymentCryptographyCryptoHandlerTest {
     void aKeyOfAnotherPurposeRefuses() {
         // A PIN encryption key may encrypt a PIN block and nothing else, so it does not encrypt
         // arbitrary data, and a MAC key does not either.
-        PaymentCryptographyKey pin = createKeyOf("TR31_P0_PIN_ENCRYPTION_KEY", "Encrypt", "Decrypt");
+        PaymentCryptographyKey pin =
+                createKeyOf("AES_256", "TR31_P0_PIN_ENCRYPTION_KEY", "Encrypt", "Decrypt");
 
         AwsException refused = assertThrows(AwsException.class, () -> handler.encryptData(request(Map.of(
                 "KeyIdentifier", pin.getArn(), "PlainText", hex("xxxxxxxxxxxxxxxx".getBytes()),
@@ -437,7 +423,8 @@ class PaymentCryptographyCryptoHandlerTest {
     void aDukptMacUnderAKeyOfAnotherPurposeRefuses() {
         // The key may derive, but it is a data encryption key rather than a base derivation
         // key, so it is not one a DUKPT MAC key is derived from.
-        PaymentCryptographyKey key = createKeyOf("TR31_D0_SYMMETRIC_DATA_ENCRYPTION_KEY", "DeriveKey");
+        PaymentCryptographyKey key =
+                createKeyOf("AES_256", "TR31_D0_SYMMETRIC_DATA_ENCRYPTION_KEY", "DeriveKey");
 
         AwsException refused = assertThrows(AwsException.class, () -> handler.generateMac(request(Map.of(
                 "KeyIdentifier", key.getArn(), "MessageData", hex("a message".getBytes()), "MacLength", 8,
