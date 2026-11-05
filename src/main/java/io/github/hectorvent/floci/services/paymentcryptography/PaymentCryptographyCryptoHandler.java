@@ -98,6 +98,8 @@ public class PaymentCryptographyCryptoHandler {
      * in the request's attributes.
      */
     public Map<String, Object> encryptData(JsonNode request, String region) {
+        // The request is checked against the constraints the model states for it.
+        PaymentCryptographyDataRequestShapes.check("EncryptData", request);
         PaymentCryptographyKey key = requiredKey(request, region, "KeyIdentifier");
         requireMode(key, "Encrypt", "encrypt");
         Encryption encryption = encryptionAttributes(request.get("EncryptionAttributes"));
@@ -114,6 +116,8 @@ public class PaymentCryptographyCryptoHandler {
      * Decrypts a blob the service encrypted.
      */
     public Map<String, Object> decryptData(JsonNode request, String region) {
+        // The request is checked against the constraints the model states for it.
+        PaymentCryptographyDataRequestShapes.check("DecryptData", request);
         PaymentCryptographyKey key = requiredKey(request, region, "KeyIdentifier");
         requireMode(key, "Decrypt", "decrypt");
         Encryption encryption = encryptionAttributes(request.get("DecryptionAttributes"));
@@ -135,6 +139,8 @@ public class PaymentCryptographyCryptoHandler {
      * Decrypts under one key and encrypts under another.
      */
     public Map<String, Object> reEncryptData(JsonNode request, String region) {
+        // The request is checked against the constraints the model states for it.
+        PaymentCryptographyDataRequestShapes.check("ReEncryptData", request);
         PaymentCryptographyKey incoming = requiredKey(request, region, "IncomingKeyIdentifier");
         requireMode(incoming, "Decrypt", "decrypt");
         PaymentCryptographyKey outgoing = requiredKey(request, region, "OutgoingKeyIdentifier");
@@ -167,6 +173,8 @@ public class PaymentCryptographyCryptoHandler {
      * caller asks for.
      */
     public Map<String, Object> generateMac(JsonNode request, String region) {
+        // The request is checked against the constraints the model states for it.
+        PaymentCryptographyDataRequestShapes.check("GenerateMac", request);
         PaymentCryptographyKey key = requiredKey(request, region, "KeyIdentifier");
         MacLeg leg = resolveMacLeg(request.get("GenerationAttributes"), key, region, "Generate",
                 "generating a MAC with");
@@ -182,6 +190,8 @@ public class PaymentCryptographyCryptoHandler {
      * The verdict of a MAC over a message.
      */
     public Map<String, Object> verifyMac(JsonNode request, String region) {
+        // The request is checked against the constraints the model states for it.
+        PaymentCryptographyDataRequestShapes.check("VerifyMac", request);
         PaymentCryptographyKey key = requiredKey(request, region, "KeyIdentifier");
         MacLeg leg = resolveMacLeg(request.get("VerificationAttributes"), key, region, "Verify",
                 "verifying a MAC with");

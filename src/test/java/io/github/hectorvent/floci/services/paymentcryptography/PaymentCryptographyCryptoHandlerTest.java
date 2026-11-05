@@ -169,7 +169,8 @@ class PaymentCryptographyCryptoHandlerTest {
         PaymentCryptographyKey key = createKey("Decrypt");
 
         AwsException refused = assertThrows(AwsException.class, () -> handler.encryptData(request(Map.of(
-                "KeyIdentifier", key.getArn(), "PlainText", hex("xxxxxxxxxxxxxxxx".getBytes()))), "us-east-1"));
+                "KeyIdentifier", key.getArn(), "PlainText", hex("xxxxxxxxxxxxxxxx".getBytes()),
+                "EncryptionAttributes", cbc())), "us-east-1"));
 
         assertEquals("InvalidKeyUsageException", refused.getErrorCode());
     }
@@ -197,10 +198,25 @@ class PaymentCryptographyCryptoHandlerTest {
     }
 
     @Test
+    void aKeyIdentifierThatNamesNoKeyIsRefused() {
+        // The identifier of a key on its own is not the ARN of a key nor an alias, and the
+        // model says so, so the request is refused before it looks for the key.
+        PaymentCryptographyKey key = createTdesKey("Encrypt", "Decrypt");
+
+        AwsException refused = assertThrows(AwsException.class, () -> handler.encryptData(request(Map.of(
+                "KeyIdentifier", key.getKeyId(), "PlainText", hex("xxxxxxxxxxxxxxxx".getBytes()),
+                "EncryptionAttributes", cbc())), "us-east-1"));
+
+        assertEquals("ValidationException", refused.getErrorCode());
+    }
+
+    @Test
     void aKeyThatIsNotThereIsNotFound() {
         AwsException refused = assertThrows(AwsException.class, () -> handler.encryptData(request(Map.of(
-                "KeyIdentifier", "arn:aws:payment-cryptography:us-east-1:000000000000:key/nope",
-                "PlainText", "")), "us-east-1"));
+                "KeyIdentifier", "arn:aws:payment-cryptography:us-east-1:000000000000:key/"
+                        + "1234abcd1234abcd",
+                "PlainText", hex("xxxxxxxxxxxxxxxx".getBytes()),
+                "EncryptionAttributes", cbc())), "us-east-1"));
 
         assertEquals("ResourceNotFoundException", refused.getErrorCode());
     }
@@ -365,7 +381,8 @@ class PaymentCryptographyCryptoHandlerTest {
     private static JsonNode dukpt(String variant) {
         ObjectMapper mapper = new ObjectMapper();
         ObjectNode dukpt = mapper.createObjectNode();
-        dukpt.put("KeySerialNumber", "9876543210");
+        // The model asks for at least sixteen hexadecimal digits, and a KSN is ten bytes.
+        dukpt.put("KeySerialNumber", "98765432109876543210");
         dukpt.put("DukptKeyVariant", "REQUEST");
         dukpt.put("DukptDerivationType", "TDES_2KEY");
         ObjectNode attributes = mapper.createObjectNode();
