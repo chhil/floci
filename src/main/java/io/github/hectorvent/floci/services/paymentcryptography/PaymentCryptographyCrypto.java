@@ -236,16 +236,7 @@ final class PaymentCryptographyCrypto {
     static byte[] encryptCbc(byte[] key, byte[] plaintext, byte[] initializationVector,
                              SecureRandom random) {
         try {
-            byte[] iv;
-            if (initializationVector == null) {
-                iv = new byte[IV_LENGTH];
-            } else {
-                if (initializationVector.length != IV_LENGTH) {
-                    throw new IllegalArgumentException("the initialization vector is "
-                            + initializationVector.length + " bytes; it is " + IV_LENGTH);
-                }
-                iv = initializationVector.clone();
-            }
+            byte[] iv = vector(initializationVector, IV_LENGTH);
             Cipher cipher = Cipher.getInstance("AES/CBC/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), new IvParameterSpec(iv));
             return cipher.doFinal(plaintext);
@@ -268,12 +259,7 @@ final class PaymentCryptographyCrypto {
      */
     static byte[] decryptCbc(byte[] key, byte[] ciphertext, byte[] initializationVector) {
         try {
-            byte[] iv = initializationVector == null ? new byte[IV_LENGTH]
-                    : initializationVector.clone();
-            if (iv.length != IV_LENGTH) {
-                throw new IllegalArgumentException("the initialization vector is "
-                        + iv.length + " bytes; it is " + IV_LENGTH);
-            }
+            byte[] iv = vector(initializationVector, IV_LENGTH);
             Cipher cipher = Cipher.getInstance("AES/CBC/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new IvParameterSpec(iv));
             return cipher.doFinal(ciphertext);
