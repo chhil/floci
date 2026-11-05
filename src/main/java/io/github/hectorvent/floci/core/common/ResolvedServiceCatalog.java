@@ -121,8 +121,10 @@ public class ResolvedServiceCatalog {
      * directory-bucket requests as {@code s3express} while the actions, ARNs and condition keys
      * remain {@code s3}; the IoT Jobs Data Plane signs as {@code iot-jobs-data} while its actions
      * are {@code iot:} ({@code iot:DescribeJobExecution} and peers in the Service Authorization
-     * Reference); the Payment Cryptography data plane signs as
-     * {@code payment-cryptography-data} while its actions are {@code payment-cryptography:}. Keep
+     * Reference); the Payment Cryptography data plane's model signs as
+     * {@code payment-cryptography}, the service the control plane signs for as well, while a
+     * client that signs under the data plane's own name {@code payment-cryptography-data} is
+     * served as that same namespace, whose actions are {@code payment-cryptography:}. Keep
      * this minimal: every entry suppresses a distinct IAM namespace.
      */
     private static final Map<String, String> CREDENTIAL_SCOPE_ALIASES =
