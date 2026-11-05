@@ -58,25 +58,6 @@ public class PaymentCryptographyCryptoHandler {
     /** The longest MAC the CMAC gives, in bytes: a whole AES block. */
     private static final int LONGEST_CMAC = 16;
 
-    /** The shortest plaintext the service encrypts, in bytes. */
-    private static final int SHORTEST_PLAINTEXT = 8;
-
-    /** The longest plaintext the service encrypts, in bytes. */
-    private static final int LONGEST_PLAINTEXT = 2032;
-
-    /**
-     * The longest ciphertext the service reads, in bytes.
-     *
-     * <p>The ciphertext is the encrypted bytes alone, and they carry the padding, so a
-     * ciphertext is longer than the plaintext it came from. The limit is the plaintext's own
-     * limit plus that overhead, or a plaintext near the limit would produce a ciphertext this
-     * service then refuses to read.
-     */
-    private static final int LONGEST_CIPHERTEXT = LONGEST_PLAINTEXT + 16;
-
-    /** The shortest ciphertext the service reads, in bytes: one block. */
-    private static final int SHORTEST_CIPHERTEXT = 16;
-
     private final PaymentCryptographyService service;
     private final SecureRandom random;
 
@@ -105,7 +86,7 @@ public class PaymentCryptographyCryptoHandler {
         Encryption encryption = encryptionAttributes(request.get("EncryptionAttributes"));
         requireCipherFamily(key, "encrypt");
         requireUsage(key, DATA_ENCRYPTION_USAGES, "encrypt data");
-        byte[] plaintext = blob(request, "PlainText", SHORTEST_PLAINTEXT, LONGEST_PLAINTEXT);
+        byte[] plaintext = blob(request, "PlainText");
         requireBlockAligned(plaintext, key, "PlainText");
         byte[] ciphertext = encrypt(material(key), plaintext,
                 initializationVector(encryption, key, "encrypting"), key);
@@ -123,7 +104,7 @@ public class PaymentCryptographyCryptoHandler {
         Encryption encryption = encryptionAttributes(request.get("DecryptionAttributes"));
         requireCipherFamily(key, "decrypt");
         requireUsage(key, DATA_ENCRYPTION_USAGES, "decrypt data");
-        byte[] ciphertext = blob(request, "CipherText", blockOf(key), LONGEST_CIPHERTEXT);
+        byte[] ciphertext = blob(request, "CipherText");
         requireBlockAligned(ciphertext, key, "CipherText");
         byte[] plaintext;
         try {
@@ -153,7 +134,7 @@ public class PaymentCryptographyCryptoHandler {
         requireCipherFamily(outgoing, "encrypt");
         requireUsage(incoming, DATA_ENCRYPTION_USAGES, "decrypt data");
         requireUsage(outgoing, DATA_ENCRYPTION_USAGES, "encrypt data");
-        byte[] ciphertext = blob(request, "CipherText", blockOf(incoming), LONGEST_CIPHERTEXT);
+        byte[] ciphertext = blob(request, "CipherText");
         requireBlockAligned(ciphertext, incoming, "CipherText");
         byte[] plaintext;
         try {
@@ -178,7 +159,7 @@ public class PaymentCryptographyCryptoHandler {
         PaymentCryptographyKey key = requiredKey(request, region, "KeyIdentifier");
         MacLeg leg = resolveMacLeg(request.get("GenerationAttributes"), key, region, "Generate",
                 "generating a MAC with");
-        byte[] message = blob(request, "MessageData", 1, 2048);
+        byte[] message = blob(request, "MessageData");
         int length = macLength(request, leg, leg.longest);
         byte[] mac = leg.mac.apply(leg.keyBytes, message);
         byte[] answer = new byte[length];
@@ -195,8 +176,8 @@ public class PaymentCryptographyCryptoHandler {
         PaymentCryptographyKey key = requiredKey(request, region, "KeyIdentifier");
         MacLeg leg = resolveMacLeg(request.get("VerificationAttributes"), key, region, "Verify",
                 "verifying a MAC with");
-        byte[] message = blob(request, "MessageData", 1, 2048);
-        byte[] mac = blob(request, "Mac", SHORTEST_MAC, LONGEST_CMAC);
+        byte[] message = blob(request, "MessageData");
+        byte[] mac = blob(request, "Mac");
         int length = macLength(request, leg, mac.length);
         if (length != mac.length) {
             throw new AwsException("ValidationException",
@@ -706,9 +687,10 @@ public class PaymentCryptographyCryptoHandler {
      * A blob of the request.
      *
      * <p>The data plane carries its blobs as hexadecimal, which is what the reference says it
-     * does, and the length of each one is bounded.
+     * does. The length of each one is the model's, which the request has already been checked
+     * against, so this only decodes what the model says is there.
      */
-    private static byte[] blob(JsonNode request, String member, int shortestBytes, int longestBytes) {
+    private static byte[] blob(JsonNode request, String member) {
         JsonNode declared = request.get(member);
         if (declared == null || declared.isNull()) {
             throw new AwsException("ValidationException", member + " is required", 400);
@@ -719,11 +701,6 @@ public class PaymentCryptographyCryptoHandler {
         String hex = declared.textValue();
         if (hex.length() % 2 != 0) {
             throw new AwsException("ValidationException", member + " must have an even number of characters", 400);
-        }
-        int length = hex.length() / 2;
-        if (length < shortestBytes || length > longestBytes) {
-            throw new AwsException("ValidationException",
-                    member + " must be between " + shortestBytes + " and " + longestBytes + " bytes", 400);
         }
         try {
             return PaymentCryptographyCrypto.fromHex(hex);
