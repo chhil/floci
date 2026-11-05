@@ -339,8 +339,7 @@ public class PaymentCryptographyCryptoHandler {
      * @return whether the key is a Triple DES one
      */
     private static boolean isTdes(PaymentCryptographyKey key) {
-        String algorithm = key.getKeyAlgorithm();
-        return algorithm != null && algorithm.startsWith("TDES_");
+        return PaymentCryptographyService.isTdes(key);
     }
 
     /**
