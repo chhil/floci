@@ -43,6 +43,12 @@ public class PaymentCryptographyCryptoHandler {
     private static final List<String> DERIVATION_USAGES = List.of(
             "TR31_B0_BASE_DERIVATION_KEY");
 
+    /** The block size of AES, in bytes: the block the cipher works in. */
+    private static final int AES_BLOCK = 16;
+
+    /** The block size of Triple DES, in bytes: the block the cipher works in. */
+    private static final int TDES_BLOCK = 8;
+
     /** The shortest MAC the service computes, in bytes. */
     private static final int SHORTEST_MAC = 4;
 
@@ -88,7 +94,8 @@ public class PaymentCryptographyCryptoHandler {
      * Encrypts the plaintext under the key the request names.
      *
      * <p>The service encrypts with AES in CBC mode and pads no data, so the plaintext fills
-     * whole blocks, and answers with the initialization vector and the ciphertext in one blob.
+     * whole blocks, and answers with the ciphertext alone: the initialization vector travels
+     * in the request's attributes.
      */
     public Map<String, Object> encryptData(JsonNode request, String region) {
         PaymentCryptographyKey key = requiredKey(request, region, "KeyIdentifier");
@@ -98,8 +105,8 @@ public class PaymentCryptographyCryptoHandler {
         requireUsage(key, DATA_ENCRYPTION_USAGES, "encrypt data");
         byte[] plaintext = blob(request, "PlainText", SHORTEST_PLAINTEXT, LONGEST_PLAINTEXT);
         requireBlockAligned(plaintext, key, "PlainText");
-        byte[] ciphertext = PaymentCryptographyCrypto.encryptCbc(material(key), plaintext,
-                initializationVector(encryption, key, "encrypting"), random);
+        byte[] ciphertext = encrypt(material(key), plaintext,
+                initializationVector(encryption, key, "encrypting"), key);
         return answer(key, Map.of("CipherText", encode(ciphertext)));
     }
 
@@ -112,12 +119,12 @@ public class PaymentCryptographyCryptoHandler {
         Encryption encryption = encryptionAttributes(request.get("DecryptionAttributes"));
         requireCipherFamily(key, "decrypt");
         requireUsage(key, DATA_ENCRYPTION_USAGES, "decrypt data");
-        byte[] ciphertext = blob(request, "CipherText", SHORTEST_CIPHERTEXT, LONGEST_CIPHERTEXT);
+        byte[] ciphertext = blob(request, "CipherText", blockOf(key), LONGEST_CIPHERTEXT);
         requireBlockAligned(ciphertext, key, "CipherText");
         byte[] plaintext;
         try {
-            plaintext = PaymentCryptographyCrypto.decryptCbc(material(key), ciphertext,
-                    initializationVector(encryption, key, "decrypting"));
+            plaintext = decrypt(material(key), ciphertext,
+                    initializationVector(encryption, key, "decrypting"), key);
         } catch (IllegalArgumentException e) {
             throw new AwsException("DecryptFailureException", e.getMessage(), 400);
         }
@@ -140,18 +147,18 @@ public class PaymentCryptographyCryptoHandler {
         requireCipherFamily(outgoing, "encrypt");
         requireUsage(incoming, DATA_ENCRYPTION_USAGES, "decrypt data");
         requireUsage(outgoing, DATA_ENCRYPTION_USAGES, "encrypt data");
-        byte[] ciphertext = blob(request, "CipherText", SHORTEST_CIPHERTEXT, LONGEST_CIPHERTEXT);
+        byte[] ciphertext = blob(request, "CipherText", blockOf(incoming), LONGEST_CIPHERTEXT);
         requireBlockAligned(ciphertext, incoming, "CipherText");
         byte[] plaintext;
         try {
-            plaintext = PaymentCryptographyCrypto.decryptCbc(material(incoming), ciphertext,
-                    initializationVector(incomingEncryption, incoming, "decrypting"));
+            plaintext = decrypt(material(incoming), ciphertext,
+                    initializationVector(incomingEncryption, incoming, "decrypting"), incoming);
         } catch (IllegalArgumentException e) {
             throw new AwsException("DecryptFailureException", e.getMessage(), 400);
         }
         requireBlockAligned(plaintext, outgoing, "the plaintext");
-        byte[] reEncrypted = PaymentCryptographyCrypto.encryptCbc(material(outgoing), plaintext,
-                initializationVector(outgoingEncryption, outgoing, "encrypting"), random);
+        byte[] reEncrypted = encrypt(material(outgoing), plaintext,
+                initializationVector(outgoingEncryption, outgoing, "encrypting"), outgoing);
         return answer(outgoing, Map.of("CipherText", encode(reEncrypted)));
     }
 
@@ -323,6 +330,20 @@ public class PaymentCryptographyCryptoHandler {
     }
 
     /**
+     * Whether the key is a Triple DES one.
+     *
+     * <p>The reference ciphers with AES and with Triple DES, and the block and the vector follow
+     * the key's family: sixteen bytes and a sixteen-byte vector for AES, eight for Triple DES.
+     *
+     * @param key the key the cipher runs under
+     * @return whether the key is a Triple DES one
+     */
+    private static boolean isTdes(PaymentCryptographyKey key) {
+        String algorithm = key.getKeyAlgorithm();
+        return algorithm != null && algorithm.startsWith("TDES_");
+    }
+
+    /**
      * The family a key's algorithm has to be for an operation.
      *
      * <p>The algorithm runs under the key: the ISO 9797 MACs are defined over Triple DES and
@@ -351,12 +372,44 @@ public class PaymentCryptographyCryptoHandler {
      * @param what the operation that is refused, for the message
      */
     private static void requireCipherFamily(PaymentCryptographyKey key, String what) {
-        if (!isAes(key)) {
+        if (!isAes(key) && !isTdes(key)) {
             throw new AwsException("InvalidKeyUsageException",
                     "the key " + key.getArn() + " is a " + key.getKeyAlgorithm()
                             + " key, and this service does not cipher with that algorithm to "
                             + what, 400);
         }
+    }
+
+    /**
+     * The ciphertext of a plaintext under the key, in the cipher the key's family runs.
+     *
+     * @param key the key's material
+     * @param plaintext the bytes to encrypt
+     * @param initializationVector the vector to encrypt under
+     * @param record the key the cipher runs under, whose family names the cipher
+     * @return the encrypted bytes
+     */
+    private byte[] encrypt(byte[] key, byte[] plaintext, byte[] initializationVector,
+                           PaymentCryptographyKey record) {
+        return isAes(record)
+                ? PaymentCryptographyCrypto.encryptCbc(key, plaintext, initializationVector, random)
+                : PaymentCryptographyCrypto.tdesCbcEncrypt(key, plaintext, initializationVector);
+    }
+
+    /**
+     * The plaintext of a ciphertext the service encrypted under the key.
+     *
+     * @param key the key's material
+     * @param ciphertext the encrypted bytes
+     * @param initializationVector the vector to decrypt under
+     * @param record the key the cipher runs under, whose family names the cipher
+     * @return the plaintext
+     */
+    private static byte[] decrypt(byte[] key, byte[] ciphertext, byte[] initializationVector,
+                                  PaymentCryptographyKey record) {
+        return isAes(record)
+                ? PaymentCryptographyCrypto.decryptCbc(key, ciphertext, initializationVector)
+                : PaymentCryptographyCrypto.tdesCbcDecrypt(key, ciphertext, initializationVector);
     }
 
     /** The cipher a request asks for. */
@@ -440,18 +493,30 @@ public class PaymentCryptographyCryptoHandler {
      * @param what the operation, for the message
      */
     /**
+     * The block the key's cipher works in: sixteen bytes for AES and eight for Triple DES, as
+     * the reference says.
+     *
+     * @param key the key the cipher runs under
+     * @return the block size, in bytes
+     */
+    private static int blockOf(PaymentCryptographyKey key) {
+        return isAes(key) ? AES_BLOCK : TDES_BLOCK;
+    }
+
+    /**
      * The data must fill whole blocks of the key's cipher.
      *
      * <p>The cipher pads no data, so the caller supplies whole blocks: a plaintext that does
      * not fill them is refused, rather than padded into a ciphertext that is longer than the
-     * data it holds.
+     * data it holds. The block follows the key's cipher, as the reference says: sixteen bytes
+     * for AES and eight for Triple DES.
      *
      * @param data the data the request names
      * @param key the key the cipher runs under, whose cipher sets the block size
      * @param member the member the data is, for the message
      */
     private static void requireBlockAligned(byte[] data, PaymentCryptographyKey key, String member) {
-        int block = isAes(key) ? 16 : 8;
+        int block = blockOf(key);
         if (data.length % block != 0) {
             throw new AwsException("ValidationException",
                     member + " must be a multiple of " + block + " bytes (one "

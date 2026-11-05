@@ -119,6 +119,33 @@ class PaymentCryptographyCryptoTest {
     }
 
     @Test
+    void theTripleDesCipherIsTheOneAnotherImplementationComputed() {
+        byte[] key = PaymentCryptographyCrypto.fromHex(
+                "000102030405060708090a0b0c0d0e0f0001020304050607");
+        byte[] vector = PaymentCryptographyCrypto.fromHex("0102030405060708");
+        byte[] plaintext = PaymentCryptographyCrypto.fromHex("00112233445566778899aabbccddeeff");
+
+        byte[] blob = PaymentCryptographyCrypto.tdesCbcEncrypt(key, plaintext, vector);
+
+        // The value is the one another implementation computes for the same key, vector and
+        // plaintext.
+        assertEquals("2ccf87b33cad11b72eb3ead4b7385053", PaymentCryptographyCrypto.toHex(blob));
+        assertArrayEquals(plaintext, PaymentCryptographyCrypto.tdesCbcDecrypt(key, blob, vector));
+    }
+
+    @Test
+    void aTwoKeyTripleDesKeyIsUsedUnderTheThreeKeysItHolds() {
+        byte[] two = PaymentCryptographyCrypto.fromHex("000102030405060708090a0b0c0d0e0f");
+        byte[] three = PaymentCryptographyCrypto.fromHex(
+                "000102030405060708090a0b0c0d0e0f0001020304050607");
+        byte[] vector = PaymentCryptographyCrypto.fromHex("0102030405060708");
+        byte[] plaintext = PaymentCryptographyCrypto.fromHex("00112233445566778899aabbccddeeff");
+
+        assertArrayEquals(PaymentCryptographyCrypto.tdesCbcEncrypt(three, plaintext, vector),
+                PaymentCryptographyCrypto.tdesCbcEncrypt(two, plaintext, vector));
+    }
+
+    @Test
     void theCipherPadsNoData() {
         byte[] key = PaymentCryptographyCrypto.fromHex(
                 "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");

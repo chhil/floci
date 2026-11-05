@@ -1,6 +1,8 @@
 package io.github.hectorvent.floci.services.paymentcryptography;
 
 
+import io.github.hectorvent.floci.services.paymentcryptography.crypto.Ciphers;
+
 import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -33,6 +35,9 @@ final class PaymentCryptographyCrypto {
 
     /** The initialization vector of a CBC encryption, in bytes. */
     private static final int IV_LENGTH = 16;
+
+    /** The initialization vector of a Triple DES CBC encryption, in bytes. */
+    private static final int TDES_IV_LENGTH = 8;
 
     /** The initial value of a key wrap, which the standard gives as it. */
     private static final byte[] INITIAL_VALUE = {
@@ -275,6 +280,61 @@ final class PaymentCryptographyCrypto {
         } catch (GeneralSecurityException e) {
             throw new IllegalArgumentException("the ciphertext did not open under the key", e);
         }
+    }
+
+    /**
+     * The ciphertext of a plaintext under a Triple DES key, with the initialization vector the
+     * request names.
+     *
+     * <p>The cipher pads no data, so the caller supplies whole blocks of eight bytes, and the
+     * ciphertext is as long as the plaintext it holds. A two-key key is used under the three keys
+     * it holds, as the cipher takes them.
+     *
+     * @param key the key
+     * @param plaintext the bytes to encrypt
+     * @param initializationVector the vector to encrypt under, or null for the zero vector
+     * @return the encrypted bytes
+     */
+    static byte[] tdesCbcEncrypt(byte[] key, byte[] plaintext, byte[] initializationVector) {
+        try {
+            Cipher cipher = Cipher.getInstance("DESede/CBC/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(Ciphers.widenTdesKey(key), "DESede"),
+                    new IvParameterSpec(vector(initializationVector, TDES_IV_LENGTH)));
+            return cipher.doFinal(plaintext);
+        } catch (GeneralSecurityException e) {
+            throw new IllegalArgumentException("the Triple DES key could not be used", e);
+        }
+    }
+
+    /**
+     * The plaintext of a ciphertext the service encrypted under a Triple DES key.
+     *
+     * @param key the key
+     * @param ciphertext the encrypted bytes
+     * @param initializationVector the vector to decrypt under, or null for the zero vector
+     * @return the plaintext
+     */
+    static byte[] tdesCbcDecrypt(byte[] key, byte[] ciphertext, byte[] initializationVector) {
+        try {
+            Cipher cipher = Cipher.getInstance("DESede/CBC/NoPadding");
+            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(Ciphers.widenTdesKey(key), "DESede"),
+                    new IvParameterSpec(vector(initializationVector, TDES_IV_LENGTH)));
+            return cipher.doFinal(ciphertext);
+        } catch (GeneralSecurityException e) {
+            throw new IllegalArgumentException("the ciphertext did not open under the key", e);
+        }
+    }
+
+    /** The vector a cipher starts from, the zero vector when the request names none. */
+    private static byte[] vector(byte[] initializationVector, int length) {
+        if (initializationVector == null) {
+            return new byte[length];
+        }
+        if (initializationVector.length != length) {
+            throw new IllegalArgumentException("the initialization vector is "
+                    + initializationVector.length + " bytes; it is " + length);
+        }
+        return initializationVector.clone();
     }
 
     /**

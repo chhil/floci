@@ -21,12 +21,13 @@ client that talks to the control plane does not reach it by accident.
 
 ## Emulation Behavior
 
-- **The encryption is AES in CBC mode without padding**, so the caller supplies whole blocks:
-  sixteen bytes under an AES key, eight under a Triple DES one. A plaintext that does not fill
-  them is refused. The ciphertext is the encrypted bytes alone and is as long as the plaintext it
-  holds: the initialization vector travels in the request's attributes, and a request that names
-  none gets a zero vector. The blobs of the data plane are hexadecimal, which is what the
-  reference says they are.
+- **The encryption is AES or Triple DES in CBC mode without padding**, so the caller supplies
+  whole blocks: sixteen bytes under an AES key and eight under a Triple DES one, as the reference
+  says. A plaintext that does not fill them is refused. A key of another family is refused rather
+  than read as a key of one of these. The ciphertext is the encrypted bytes alone and is as long as
+  the plaintext it holds: the initialization vector travels in the request's attributes, and a
+  request that names none gets a zero vector. The blobs of the data plane are hexadecimal, which is
+  what the reference says they are.
 - **The MAC is the one the request asks for.** The ISO 9797-1 algorithms 1 and 3 are the ones
   defined over Triple DES, and the CMAC is the AES-CMAC of RFC 4493, which is a whole block
   wide, so it is cut to a length the caller asks for. The service fails the request when the

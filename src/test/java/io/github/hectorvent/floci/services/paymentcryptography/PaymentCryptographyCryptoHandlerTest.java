@@ -55,6 +55,19 @@ class PaymentCryptographyCryptoHandlerTest {
         return service.createKey("us-east-1", attributes, declared, true, true, Map.of());
     }
 
+    /** A Triple DES key of the data encryption usage, which the data plane ciphers with. */
+    private PaymentCryptographyKey createTdesDataKey(String algorithm, String... modes) {
+        Map<String, Object> attributes = new LinkedHashMap<>();
+        attributes.put("KeyAlgorithm", algorithm);
+        attributes.put("KeyClass", "SYMMETRIC_KEY");
+        attributes.put("KeyUsage", "TR31_D0_SYMMETRIC_DATA_ENCRYPTION_KEY");
+        Map<String, Boolean> declared = new LinkedHashMap<>();
+        for (String mode : modes) {
+            declared.put(mode, Boolean.TRUE);
+        }
+        return service.createKey("us-east-1", attributes, declared, true, true, Map.of());
+    }
+
     private PaymentCryptographyKey createKey(String... modes) {
         return createKeyOf("TR31_D0_SYMMETRIC_DATA_ENCRYPTION_KEY", modes);
     }
@@ -259,6 +272,40 @@ class PaymentCryptographyCryptoHandlerTest {
                 "VerificationAttributes", iso9797())), "us-east-1"));
 
         assertEquals("VerificationFailedException", refused.getErrorCode());
+    }
+
+    @Test
+    void aTripleDesKeyEncryptsAndDecrypts() {
+        // The reference ciphers with Triple DES as well as with AES, and the block follows the
+        // key's cipher: eight bytes for Triple DES.
+        PaymentCryptographyKey key = createTdesDataKey("TDES_2KEY", "Encrypt", "Decrypt");
+        String plaintext = "0011223344556677";
+
+        Map<String, Object> encrypted = handler.encryptData(request(Map.of(
+                "KeyIdentifier", key.getArn(), "PlainText", plaintext,
+                "EncryptionAttributes", cbc())), "us-east-1");
+        String cipherText = (String) encrypted.get("CipherText");
+
+        assertEquals(plaintext.length(), cipherText.length());
+
+        Map<String, Object> decrypted = handler.decryptData(request(Map.of(
+                "KeyIdentifier", key.getArn(), "CipherText", cipherText,
+                "DecryptionAttributes", cbc())), "us-east-1");
+
+        assertEquals(plaintext, decrypted.get("PlainText"));
+    }
+
+    @Test
+    void aTripleDesPlaintextThatDoesNotFillWholeBlocksIsRefused() {
+        // The block of a Triple DES key is eight bytes, so twelve bytes do not fill one.
+        PaymentCryptographyKey key = createTdesDataKey("TDES_2KEY", "Encrypt", "Decrypt");
+
+        AwsException refused = assertThrows(AwsException.class, () -> handler.encryptData(request(Map.of(
+                "KeyIdentifier", key.getArn(), "PlainText", "00112233445566778899ab",
+                "EncryptionAttributes", cbc())), "us-east-1"));
+
+        assertEquals("ValidationException", refused.getErrorCode());
+        assertTrue(refused.getMessage().contains("8 bytes (one TDES block)"), refused.getMessage());
     }
 
     @Test
