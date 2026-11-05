@@ -68,16 +68,7 @@ class PaymentCryptographyTest {
     }
 
     private static Key createAesKey() {
-        Key key = client.createKey(r -> r
-                .keyAttributes(a -> a
-                        .keyAlgorithm(KeyAlgorithm.AES_256)
-                        .keyClass(KeyClass.SYMMETRIC_KEY)
-                        .keyUsage(KeyUsage.TR31_D0_SYMMETRIC_DATA_ENCRYPTION_KEY)
-                        .keyModesOfUse(m -> m.encrypt(true).decrypt(true)))
-                .exportable(true))
-                .key();
-        keyArns.add(key.keyArn());
-        return key;
+        return createKey(KeyAlgorithm.AES_256);
     }
 
     /**
@@ -87,9 +78,14 @@ class PaymentCryptographyTest {
      * behind it is the one the native image has to carry.
      */
     private static Key createTdesKey() {
+        return createKey(KeyAlgorithm.TDES_2_KEY);
+    }
+
+    /** A key of the given algorithm, for the data the cipher protects. */
+    private static Key createKey(KeyAlgorithm algorithm) {
         Key key = client.createKey(r -> r
                 .keyAttributes(a -> a
-                        .keyAlgorithm(KeyAlgorithm.TDES_2_KEY)
+                        .keyAlgorithm(algorithm)
                         .keyClass(KeyClass.SYMMETRIC_KEY)
                         .keyUsage(KeyUsage.TR31_D0_SYMMETRIC_DATA_ENCRYPTION_KEY)
                         .keyModesOfUse(m -> m.encrypt(true).decrypt(true)))
