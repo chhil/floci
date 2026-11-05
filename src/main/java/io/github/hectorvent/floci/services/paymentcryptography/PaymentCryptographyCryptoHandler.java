@@ -481,18 +481,6 @@ public class PaymentCryptographyCryptoHandler {
     }
 
     /**
-     * The usage a key has to have for an operation.
-     *
-     * <p>The usage is what binds a key to its purpose, so an operation that belongs to one
-     * purpose is not served with a key of another: a PIN encryption key does not encrypt
-     * arbitrary data, and a MAC key does not either. The check is on the usage itself, not
-     * on the mode, because a key may carry the mode and still be of another purpose.
-     *
-     * @param key the key the operation runs under
-     * @param usages the usages the operation serves
-     * @param what the operation, for the message
-     */
-    /**
      * The block the key's cipher works in: sixteen bytes for AES and eight for Triple DES, as
      * the reference says.
      *
@@ -524,6 +512,18 @@ public class PaymentCryptographyCryptoHandler {
         }
     }
 
+    /**
+     * The usage a key has to have for an operation.
+     *
+     * <p>The usage is what binds a key to its purpose, so an operation that belongs to one
+     * purpose is not served with a key of another: a PIN encryption key does not encrypt
+     * arbitrary data, and a MAC key does not either. The check is on the usage itself, not
+     * on the mode, because a key may carry the mode and still be of another purpose.
+     *
+     * @param key the key the operation runs under
+     * @param usages the usages the operation serves
+     * @param what the operation, for the message
+     */
     private static void requireUsage(PaymentCryptographyKey key, List<String> usages, String what) {
         String usage = key.getKeyUsage();
         if (usage == null || usages.contains(usage)) {
@@ -552,12 +552,6 @@ public class PaymentCryptographyCryptoHandler {
         }
     }
 
-    /**
-     * A blob of the request.
-     *
-     * <p>The data plane carries its blobs as hexadecimal, which is what the reference says it
-     * does, and the length of each one is bounded.
-     */
     /**
      * The MAC a request asks for, and the key it is computed under.
      *
@@ -699,6 +693,12 @@ public class PaymentCryptographyCryptoHandler {
         return true;
     }
 
+    /**
+     * A blob of the request.
+     *
+     * <p>The data plane carries its blobs as hexadecimal, which is what the reference says it
+     * does, and the length of each one is bounded.
+     */
     private static byte[] blob(JsonNode request, String member, int shortestBytes, int longestBytes) {
         JsonNode declared = request.get(member);
         if (declared == null || declared.isNull()) {
