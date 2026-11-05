@@ -109,12 +109,6 @@ Quick summary:
 - **Never leave a `catch` block empty.** If swallowing is correct, name the variable
   `ignored` or `expected` and say why in a comment.
 - **Always use braces in conditionals**, and use constructor injection.
-- **Ciphers come from BouncyCastle, not the JCE.** The native image does not register
-  the JCE's Triple DES, so a request that needs it there hangs until the job is
-  cancelled at its timeout, and the suite that would have caught it never answers.
-  AES through the JCE is registered and works, but a cipher that is not in the image
-  is not worth the risk. Give the cipher its own class, and keep the mode and the
-  padding written down rather than left to a provider's default.
 - **Tests**: JUnit 5 with Hamcrest and RestAssured. Name methods as a camelCase
   sentence or `method_scenario_expectation`, never `testX`.
 
