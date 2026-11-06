@@ -9,7 +9,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 import java.security.MessageDigest;
-import java.security.SecureRandom;
 import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -61,16 +60,10 @@ public class PaymentCryptographyCryptoHandler {
     private static final int LONGEST_CMAC = 16;
 
     private final PaymentCryptographyService service;
-    private final SecureRandom random;
 
     @Inject
     public PaymentCryptographyCryptoHandler(PaymentCryptographyService service) {
-        this(service, new SecureRandom());
-    }
-
-    PaymentCryptographyCryptoHandler(PaymentCryptographyService service, SecureRandom random) {
         this.service = service;
-        this.random = random;
     }
 
     /**
@@ -108,13 +101,8 @@ public class PaymentCryptographyCryptoHandler {
         requireUsage(key, DATA_ENCRYPTION_USAGES, "decrypt data");
         byte[] ciphertext = blob(request, "CipherText");
         requireBlockAligned(ciphertext, key, "CipherText");
-        byte[] plaintext;
-        try {
-            plaintext = decrypt(material(key), ciphertext,
-                    initializationVector(encryption, key, "decrypting"), key);
-        } catch (IllegalArgumentException e) {
-            throw new AwsException("DecryptFailureException", e.getMessage(), 400);
-        }
+        byte[] plaintext = decrypt(material(key), ciphertext,
+                initializationVector(encryption, key, "decrypting"), key);
         return answer(key, Map.of("PlainText", encode(plaintext)));
     }
 
@@ -138,13 +126,8 @@ public class PaymentCryptographyCryptoHandler {
         requireUsage(outgoing, DATA_ENCRYPTION_USAGES, "encrypt data");
         byte[] ciphertext = blob(request, "CipherText");
         requireBlockAligned(ciphertext, incoming, "CipherText");
-        byte[] plaintext;
-        try {
-            plaintext = decrypt(material(incoming), ciphertext,
-                    initializationVector(incomingEncryption, incoming, "decrypting"), incoming);
-        } catch (IllegalArgumentException e) {
-            throw new AwsException("DecryptFailureException", e.getMessage(), 400);
-        }
+        byte[] plaintext = decrypt(material(incoming), ciphertext,
+                initializationVector(incomingEncryption, incoming, "decrypting"), incoming);
         requireBlockAligned(plaintext, outgoing, "the plaintext");
         byte[] reEncrypted = encrypt(material(outgoing), plaintext,
                 initializationVector(outgoingEncryption, outgoing, "encrypting"), outgoing);
@@ -192,7 +175,7 @@ public class PaymentCryptographyCryptoHandler {
             // The service does not answer that a MAC is not valid: it fails, because a caller
             // that asks whether a MAC is good gets an error rather than a false.
             throw new AwsException("VerificationFailedException",
-                    "This request failed verification.", 400);
+                    "This request failed verification.", 400, Map.of("Reason", "INVALID_MAC"));
         }
         return answer(key, Map.of());
     }
@@ -272,11 +255,8 @@ public class PaymentCryptographyCryptoHandler {
         byte[] iv = null;
         if (symmetric != null && symmetric.hasNonNull("InitializationVector")) {
             String hex = symmetric.path("InitializationVector").asText();
-            if (!hex.isEmpty() && !isHex(hex)) {
-                throw new AwsException("ValidationException",
-                        "the initialization vector must be a hexadecimal string", 400);
-            }
             if (!hex.isEmpty()) {
+                // The model's pattern says the vector is hexadecimal, so it only decodes here.
                 iv = HexFormat.of().parseHex(hex);
             }
         }
@@ -347,7 +327,7 @@ public class PaymentCryptographyCryptoHandler {
      */
     private static void requireFamily(PaymentCryptographyKey key, boolean aes, String what) {
         if (isAes(key) != aes) {
-            throw new AwsException("InvalidKeyUsageException",
+            throw new AwsException("ValidationException",
                     "the key " + key.getArn() + " is a " + key.getKeyAlgorithm() + " key, and "
                             + what + " needs a " + (aes ? "AES" : "Triple DES") + " one", 400);
         }
@@ -365,7 +345,7 @@ public class PaymentCryptographyCryptoHandler {
      */
     private static void requireCipherFamily(PaymentCryptographyKey key, String what) {
         if (!isAes(key) && !isTdes(key)) {
-            throw new AwsException("InvalidKeyUsageException",
+            throw new AwsException("ValidationException",
                     "the key " + key.getArn() + " is a " + key.getKeyAlgorithm()
                             + " key, and this service does not cipher with that algorithm to "
                             + what, 400);
@@ -416,7 +396,7 @@ public class PaymentCryptographyCryptoHandler {
         }
         PaymentCryptographyKey key = service.findKey(region, identifier);
         if (key == null) {
-            throw new AwsException("ResourceNotFoundException", "Key not found: " + identifier, 400);
+            throw new AwsException("ResourceNotFoundException", "Key not found: " + identifier, 404);
         }
         requireEnabled(key);
         return key;
@@ -432,7 +412,7 @@ public class PaymentCryptographyCryptoHandler {
      */
     private static void requireEnabled(PaymentCryptographyKey key) {
         if (!key.isEnabled()) {
-            throw new AwsException("InvalidKeyUsageException",
+            throw new AwsException("ValidationException",
                     "the key " + key.getArn() + " is disabled", 400);
         }
     }
@@ -521,7 +501,7 @@ public class PaymentCryptographyCryptoHandler {
         if (usage == null || usages.contains(usage)) {
             return;
         }
-        throw new AwsException("InvalidKeyUsageException",
+        throw new AwsException("ValidationException",
                 "the key " + key.getArn() + " is of the usage " + usage + ", and it may not be used to "
                         + what + ", which needs a key of the usage " + String.join(" or ", usages), 400);
     }
@@ -538,7 +518,7 @@ public class PaymentCryptographyCryptoHandler {
             return;
         }
         if (!Boolean.TRUE.equals(modes.get(mode))) {
-            throw new AwsException("InvalidKeyUsageException",
+            throw new AwsException("ValidationException",
                     "the key " + key.getArn() + " does not have the mode of use " + mode
                             + ", which it needs to " + what, 400);
         }
@@ -595,11 +575,8 @@ public class PaymentCryptographyCryptoHandler {
             requireUsage(key, DERIVATION_USAGES, "deriving a MAC key");
             requireFamily(key, false, "deriving a MAC key");
             JsonNode variantAttributes = attributes.get(variant);
+            // The model's pattern says the serial number is hexadecimal, so it only decodes here.
             String ksn = text(variantAttributes, "KeySerialNumber");
-            if (!isHex(ksn)) {
-                throw new AwsException("ValidationException",
-                        variant + ".KeySerialNumber (hex) is required", 400);
-            }
             String keyVariant = text(variantAttributes, "DukptKeyVariant");
             if (!keyVariant.isEmpty() && !"REQUEST".equals(keyVariant)) {
                 throw new AwsException("ValidationException",
@@ -670,43 +647,15 @@ public class PaymentCryptographyCryptoHandler {
         return declared == null || declared.isNull() ? "" : declared.asText("");
     }
 
-    /** Whether the text is hexadecimal: a whole number of pairs of hexadecimal digits. */
-    private static boolean isHex(String value) {
-        if (value == null || value.isEmpty()) {
-            return false;
-        }
-        try {
-            HexFormat.of().parseHex(value);
-            return true;
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
-    }
-
     /**
      * A blob of the request.
      *
      * <p>The data plane carries its blobs as hexadecimal, which is what the reference says it
-     * does. The length of each one is the model's, which the request has already been checked
-     * against, so this only decodes what the model says is there.
+     * does. The request has already been checked against the model, which says that the
+     * member is there, that it is a string and what it holds, so this only decodes it.
      */
     private static byte[] blob(JsonNode request, String member) {
-        JsonNode declared = request.get(member);
-        if (declared == null || declared.isNull()) {
-            throw new AwsException("ValidationException", member + " is required", 400);
-        }
-        if (!declared.isTextual()) {
-            throw new AwsException("ValidationException", member + " must be a hexadecimal string", 400);
-        }
-        String hex = declared.textValue();
-        if (hex.length() % 2 != 0) {
-            throw new AwsException("ValidationException", member + " must have an even number of characters", 400);
-        }
-        try {
-            return PaymentCryptographyCrypto.fromHex(hex);
-        } catch (RuntimeException e) {
-            throw new AwsException("ValidationException", member + " is not hexadecimal", 400);
-        }
+        return PaymentCryptographyCrypto.fromHex(request.get(member).textValue());
     }
 
     /**

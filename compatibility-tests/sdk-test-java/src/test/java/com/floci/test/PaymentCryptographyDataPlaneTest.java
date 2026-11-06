@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.services.paymentcryptography.model.KeyAlgorithm;
 import software.amazon.awssdk.services.paymentcryptography.model.KeyClass;
 import software.amazon.awssdk.services.paymentcryptography.model.KeyUsage;
@@ -20,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @DisplayName("Payment Cryptography data plane")
 class PaymentCryptographyDataPlaneTest {
@@ -175,26 +177,32 @@ class PaymentCryptographyDataPlaneTest {
                         .build()))
                 .mac();
 
-        assertThatThrownBy(() -> client.verifyMac(r -> r
+        // The failure names the reason the model's shape carries, so a caller can tell a bad
+        // MAC from a bad request.
+        AwsServiceException refusal = assertThrows(AwsServiceException.class, () -> client.verifyMac(r -> r
                 .keyIdentifier(macKeyArn)
                 .messageData(hex("another message entirely"))
                 .mac(value)
                 .macLength(16)
                 .verificationAttributes(MacAttributes.builder()
                         .algorithm(MacAlgorithm.CMAC)
-                        .build())))
-                .isNotNull();
+                        .build())));
+        assertThat(refusal.awsErrorDetails().errorCode()).isEqualTo("VerificationFailedException");
+        assertThat(refusal.statusCode()).isEqualTo(400);
     }
 
     @Test
     void aKeyThatIsNotThereIsRefused() {
-        assertThatThrownBy(() -> client.encryptData(r -> r
-                .keyIdentifier("arn:aws:payment-cryptography:us-east-1:000000000000:key/nope")
+        // The identifier matches the model's pattern, so the request reaches the key it names
+        // rather than being refused as a malformed one.
+        AwsServiceException refusal = assertThrows(AwsServiceException.class, () -> client.encryptData(r -> r
+                .keyIdentifier("arn:aws:payment-cryptography:us-east-1:000000000000:key/0123456789abcdef")
                 .plainText(PLAIN_TEXT)
                 .encryptionAttributes(EncryptionDecryptionAttributes.builder()
                         .symmetric(SymmetricEncryptionAttributes.builder().mode(EncryptionMode.CBC).build())
-                        .build())))
-                .isNotNull();
+                        .build())));
+        assertThat(refusal.awsErrorDetails().errorCode()).isEqualTo("ResourceNotFoundException");
+        assertThat(refusal.statusCode()).isEqualTo(404);
     }
 
     /** Bytes as the data plane carries them: hexadecimal. */

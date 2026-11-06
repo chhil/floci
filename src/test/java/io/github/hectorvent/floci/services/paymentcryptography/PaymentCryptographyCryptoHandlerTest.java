@@ -172,7 +172,7 @@ class PaymentCryptographyCryptoHandlerTest {
                 "KeyIdentifier", key.getArn(), "PlainText", hex("xxxxxxxxxxxxxxxx".getBytes()),
                 "EncryptionAttributes", cbc())), "us-east-1"));
 
-        assertEquals("InvalidKeyUsageException", refused.getErrorCode());
+        assertEquals("ValidationException", refused.getErrorCode());
     }
 
     @Test
@@ -186,7 +186,7 @@ class PaymentCryptographyCryptoHandlerTest {
                 "KeyIdentifier", pin.getArn(), "PlainText", hex("xxxxxxxxxxxxxxxx".getBytes()),
                 "EncryptionAttributes", cbc())), "us-east-1"));
 
-        assertEquals("InvalidKeyUsageException", refused.getErrorCode());
+        assertEquals("ValidationException", refused.getErrorCode());
 
         PaymentCryptographyKey mac = createTdesKey("Generate", "Verify");
 
@@ -194,7 +194,7 @@ class PaymentCryptographyCryptoHandlerTest {
                 "KeyIdentifier", mac.getArn(), "PlainText", hex("xxxxxxxxxxxxxxxx".getBytes()),
                 "EncryptionAttributes", cbc())), "us-east-1"));
 
-        assertEquals("InvalidKeyUsageException", refusedMac.getErrorCode());
+        assertEquals("ValidationException", refusedMac.getErrorCode());
     }
 
     @Test
@@ -433,7 +433,7 @@ class PaymentCryptographyCryptoHandlerTest {
                 "KeyIdentifier", key.getArn(), "MessageData", hex("a message".getBytes()), "MacLength", 8,
                 "GenerationAttributes", dukpt("DukptIso9797Algorithm1"))), "us-east-1"));
 
-        assertEquals("InvalidKeyUsageException", refused.getErrorCode());
+        assertEquals("ValidationException", refused.getErrorCode());
     }
 
     @Test
@@ -447,7 +447,7 @@ class PaymentCryptographyCryptoHandlerTest {
                 "KeyIdentifier", key.getArn(), "MessageData", hex("a message".getBytes()), "MacLength", 8,
                 "GenerationAttributes", dukpt("DukptIso9797Algorithm1"))), "us-east-1"));
 
-        assertEquals("InvalidKeyUsageException", refused.getErrorCode());
+        assertEquals("ValidationException", refused.getErrorCode());
     }
 
     @Test
@@ -459,7 +459,7 @@ class PaymentCryptographyCryptoHandlerTest {
                 "KeyIdentifier", key.getArn(), "MessageData", hex("a message".getBytes()), "MacLength", 8,
                 "GenerationAttributes", dukpt("DukptIso9797Algorithm1"))), "us-east-1"));
 
-        assertEquals("InvalidKeyUsageException", refused.getErrorCode());
+        assertEquals("ValidationException", refused.getErrorCode());
     }
 
     @Test
