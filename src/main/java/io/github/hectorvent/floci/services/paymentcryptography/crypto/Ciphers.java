@@ -11,7 +11,6 @@ import org.bouncycastle.crypto.paddings.ZeroBytePadding;
 import org.bouncycastle.crypto.params.KeyParameter;
 import org.bouncycastle.crypto.params.ParametersWithIV;
 
-import java.util.Arrays;
 
 /**
  * The block ciphers the data plane's MACs are built from.
@@ -48,7 +47,7 @@ public final class Ciphers {
      * @return the encrypted bytes
      */
     public static byte[] aesCbcEncrypt(byte[] data, byte[] key, byte[] iv16) {
-        return blocks(new AESEngine(), true, data, key, iv16);
+        return blocks(AESEngine.newInstance(), true, data, key, iv16);
     }
 
     /**
@@ -61,7 +60,7 @@ public final class Ciphers {
      * @return the decrypted bytes
      */
     public static byte[] aesCbcDecrypt(byte[] data, byte[] key, byte[] iv16) {
-        return blocks(new AESEngine(), false, data, key, iv16);
+        return blocks(AESEngine.newInstance(), false, data, key, iv16);
     }
 
     /**
@@ -72,7 +71,7 @@ public final class Ciphers {
      * @return the encrypted bytes
      */
     public static byte[] aesEcbEncrypt(byte[] block16, byte[] key) {
-        return block(new AESEngine(), true, block16, key);
+        return block(AESEngine.newInstance(), true, block16, key);
     }
 
     /**
@@ -83,7 +82,7 @@ public final class Ciphers {
      * @return the decrypted bytes
      */
     public static byte[] aesEcbDecrypt(byte[] block16, byte[] key) {
-        return block(new AESEngine(), false, block16, key);
+        return block(AESEngine.newInstance(), false, block16, key);
     }
 
     /**
@@ -245,7 +244,7 @@ public final class Ciphers {
             throw new IllegalArgumentException("the initialization vector is "
                     + (iv == null ? "missing" : iv.length + " bytes") + "; it is " + size);
         }
-        CBCBlockCipher cbc = new CBCBlockCipher(cipher);
+        BlockCipher cbc = CBCBlockCipher.newInstance(cipher);
         cbc.init(encrypt, new ParametersWithIV(new KeyParameter(key), iv));
         byte[] out = new byte[data.length];
         for (int offset = 0; offset < data.length; offset += size) {
