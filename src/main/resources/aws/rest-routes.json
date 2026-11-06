@@ -692,6 +692,7 @@
     "payment-cryptography-data": {
       "credentialScope": "payment-cryptography",
       "apiVersion": "2022-02-03",
+      "accessDeniedStatus": 403,
       "operations": {
         "DecryptData": {"method": "POST", "requestUri": "/_paymentcryptography/keys/{KeyIdentifier+}/decrypt"},
         "EncryptData": {"method": "POST", "requestUri": "/_paymentcryptography/keys/{KeyIdentifier+}/encrypt"},
