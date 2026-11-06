@@ -9,8 +9,7 @@ import java.util.HexFormat;
  * <pre>
  *   1. IPEK derivation        BDK + initial KSN        -&gt; IPEK
  *   2. Transaction key        IPEK + KSN counter bits  -&gt; derived key (one-way)
- *   3. Working-key variants   derived key XOR mask     -&gt; PIN / MAC-request / data key
- *      (the data key is additionally self-encrypted per X9.24-1)
+ *   3. Working-key variant    derived key XOR mask     -&gt; MAC-request key
  * </pre>
  *
  * <p>Validated against two independent published vector sets: the classic
@@ -21,9 +20,7 @@ import java.util.HexFormat;
 public final class DukptCrypto {
 
     private static final byte[] KEY_VARIANT = HexFormat.of().parseHex("C0C0C0C000000000C0C0C0C000000000");
-    private static final byte[] PIN_MASK = HexFormat.of().parseHex("00000000000000FF00000000000000FF");
     private static final byte[] MAC_REQUEST_MASK = HexFormat.of().parseHex("000000000000FF00000000000000FF00");
-    private static final byte[] DATA_REQUEST_MASK = HexFormat.of().parseHex("0000000000FF00000000000000FF0000");
 
     private DukptCrypto() {
     }
@@ -110,26 +107,9 @@ public final class DukptCrypto {
         return key;
     }
 
-    /** The PIN encryption working key. */
-    public static byte[] pinKey(String bdkHex, String ksnHex) {
-        return Ciphers.xor(deriveTransactionKey(bdkHex, ksnHex), PIN_MASK);
-    }
-
     /** The MAC-request working key. */
     public static byte[] macKey(String bdkHex, String ksnHex) {
         return Ciphers.xor(deriveTransactionKey(bdkHex, ksnHex), MAC_REQUEST_MASK);
-    }
-
-    /**
-     * The data-encryption-request working key: the variant mask is applied, then
-     * each half is TDES-encrypted under the variant key itself, the X9.24-1
-     * one-way step.
-     */
-    public static byte[] dataKey(String bdkHex, String ksnHex) {
-        byte[] v = Ciphers.xor(deriveTransactionKey(bdkHex, ksnHex), DATA_REQUEST_MASK);
-        return concat(
-                Ciphers.tdes2Encrypt(Arrays.copyOfRange(v, 0, 8), v),
-                Ciphers.tdes2Encrypt(Arrays.copyOfRange(v, 8, 16), v));
     }
 
     private static byte[] right(byte[] key16, byte[] reg8) {

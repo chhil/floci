@@ -16,10 +16,10 @@ import java.util.HexFormat;
  * CMAC check value, and what the reference implementation its samples use
  * computes.
  *
- * <p>The data plane encrypts with AES in CBC mode and pads no data, so the caller supplies
- * whole blocks and the ciphertext is as long as the plaintext it holds, and answers with the
- * initialization vector and the ciphertext in one blob. The MAC is the CMAC of the message under
- * the key, cut to the length the caller asks for.
+ * <p>The data plane encrypts with AES or Triple DES in CBC mode and pads no data, so the
+ * caller supplies whole blocks and the ciphertext is as long as the plaintext it holds, and
+ * answers with the initialization vector and the ciphertext in one blob. The MAC is the CMAC of
+ * the message under the key, cut to the length the caller asks for.
  */
 final class PaymentCryptographyCrypto {
 
@@ -110,7 +110,7 @@ final class PaymentCryptographyCrypto {
      * @return the encrypted bytes
      */
     private static byte[] tdesEcbEncrypt(byte[] block8, byte[] key) {
-        return Ciphers.tdes3Encrypt(block8, Ciphers.widenTdesKey(key));
+        return Ciphers.tdes2Encrypt(block8, key);
     }
 
     /**
