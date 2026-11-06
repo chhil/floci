@@ -69,9 +69,9 @@ public class PaymentCryptographyCryptoHandler {
     /**
      * Encrypts the plaintext under the key the request names.
      *
-     * <p>The service encrypts with AES in CBC mode and pads no data, so the plaintext fills
-     * whole blocks, and answers with the ciphertext alone: the initialization vector travels
-     * in the request's attributes.
+     * <p>The service encrypts with the cipher the key's algorithm names, in CBC mode, and
+     * pads no data, so the plaintext fills whole blocks, and answers with the ciphertext
+     * alone: the initialization vector travels in the request's attributes.
      */
     public Map<String, Object> encryptData(JsonNode request, String region) {
         // The request is checked against the constraints the model states for it.
