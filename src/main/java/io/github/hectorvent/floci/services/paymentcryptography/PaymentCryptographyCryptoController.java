@@ -2,7 +2,6 @@ package io.github.hectorvent.floci.services.paymentcryptography;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.hectorvent.floci.core.common.AwsException;
 import io.github.hectorvent.floci.core.common.RegionResolver;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.POST;
@@ -49,14 +48,10 @@ public class PaymentCryptographyCryptoController extends PaymentCryptographyData
     @Path("/keys/{incomingKeyIdentifier:.+}/reencrypt")
     public Response reEncryptData(@PathParam("incomingKeyIdentifier") String incomingKeyIdentifier,
                                   String body, @Context HttpHeaders headers) {
+        // The key the block is encrypted under is in the body, and it is the only other
+        // key the request may name. The model says the request must name it, so a request
+        // that does not is refused there.
         JsonNode request = request(body, incomingKeyIdentifier, "IncomingKeyIdentifier");
-        // The key the block is encrypted under is in the body, and it is the only other key
-        // the request may name.
-        String outgoing = request.path("OutgoingKeyIdentifier").asText();
-        if (outgoing.isEmpty()) {
-            throw new AwsException("ValidationException",
-                    "OutgoingKeyIdentifier is required", 400);
-        }
         return respond(handler.reEncryptData(request, region(headers)));
     }
 

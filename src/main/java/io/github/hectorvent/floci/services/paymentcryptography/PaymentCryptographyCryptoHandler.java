@@ -664,17 +664,12 @@ public class PaymentCryptographyCryptoHandler {
     /**
      * The length of the MAC the caller asks for, which the service computes.
      *
-     * <p>The protocol carries the length as a number, so a member that is not one is a
-     * malformed request rather than a length: it is refused, and not read as the length the
-     * service would compute, which would answer a request the caller did not make.
+     * <p>The model says the length is a whole number of at least four bytes, and the
+     * request has been checked against it. What the algorithm gives is shorter than the
+     * model allows, so a length above it is refused here.
      */
     private static int macLength(JsonNode request, MacLeg leg, int fallback) {
-        JsonNode declared = request.path("MacLength");
-        if (!declared.isMissingNode() && !declared.isNull() && !declared.isIntegralNumber()) {
-            throw new AwsException("ValidationException",
-                    "MacLength must be a whole number of bytes", 400);
-        }
-        int length = declared.asInt(fallback);
+        int length = request.path("MacLength").asInt(fallback);
         if (length < SHORTEST_MAC || length > leg.longest) {
             throw new AwsException("ValidationException",
                     "MacLength must be between " + SHORTEST_MAC + " and " + leg.longest, 400);
