@@ -3,9 +3,9 @@ package io.github.hectorvent.floci.services.paymentcryptography.crypto;
 /**
  * The decimalization the Visa PIN Verification Value is made of.
  *
- * <p>The digits of the enciphered block are taken first, and the letters are turned into
- * numbers only if there are not enough digits: a letter stands for its position in the
- * alphabet, ten for A, eleven for B, and so on.
+ * <p>The digits of the enciphered block are taken first, from left to right, and the letters
+ * are turned into numbers only if there are not enough digits: a letter stands for its own
+ * value less ten, so A is zero, B is one, and F is five.
  */
 public final class Decimalize {
 
@@ -14,6 +14,10 @@ public final class Decimalize {
 
     /**
      * The first n digits of a hexadecimal string, decimalized.
+     *
+     * <p>The digits are taken first, from left to right. When there are not enough of them,
+     * the letters fill the gap, from left to right, each one standing for its own value less
+     * ten.
      *
      * @param hex the hexadecimal string
      * @param n the number of digits wanted

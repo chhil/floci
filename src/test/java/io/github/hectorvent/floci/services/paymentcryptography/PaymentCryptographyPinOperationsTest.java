@@ -161,6 +161,9 @@ class PaymentCryptographyPinOperationsTest {
         Map<String, Object> pinData = (Map<String, Object>) generated.get("PinData");
         String pvv = (String) pinData.get("VerificationValue");
         assertNotNull(pvv);
+        // The model's PinData is a union of the PIN offset and the verification value, and a
+        // union carries one of them: this is the verification value and nothing else.
+        assertEquals(Map.of("VerificationValue", pvv), pinData);
 
         Map<String, Object> verified = pin.verifyPinData(request(Map.of(
                 "EncryptionKeyIdentifier", pek.getArn(),
@@ -274,7 +277,7 @@ class PaymentCryptographyPinOperationsTest {
                         "PrimaryAccountNumber", PAN,
                         "GenerationAttributes", visaPin(1))),
                         "us-east-1"));
-        assertEquals("InvalidKeyUsageException", refused.getErrorCode());
+        assertEquals("ValidationException", refused.getErrorCode());
     }
 
     @Test
@@ -292,7 +295,7 @@ class PaymentCryptographyPinOperationsTest {
                         "PrimaryAccountNumber", PAN,
                         "GenerationAttributes", visaPin(1))),
                         "us-east-1"));
-        assertEquals("InvalidKeyUsageException", refused.getErrorCode());
+        assertEquals("ValidationException", refused.getErrorCode());
         assertTrue(refused.getMessage().contains("TR31_V2_VISA_PIN_VERIFICATION_KEY"),
                 refused.getMessage());
     }
@@ -309,7 +312,7 @@ class PaymentCryptographyPinOperationsTest {
                         "PrimaryAccountNumber", PAN,
                         "GenerationAttributes", visaPin(1))),
                         "us-east-1"));
-        assertEquals("InvalidKeyUsageException", refused.getErrorCode());
+        assertEquals("ValidationException", refused.getErrorCode());
     }
 
     @Test
@@ -326,7 +329,7 @@ class PaymentCryptographyPinOperationsTest {
                         "EncryptedPinBlock", "0000000000000000",
                         "VerificationAttributes", visaPin(1, "1234"))),
                         "us-east-1"));
-        assertEquals("InvalidKeyUsageException", refused.getErrorCode());
+        assertEquals("ValidationException", refused.getErrorCode());
     }
 
     @Test
@@ -423,6 +426,33 @@ class PaymentCryptographyPinOperationsTest {
                         "VerificationAttributes", visaPin(1, "1234"))),
                         "us-east-1"));
         assertEquals("ResourceNotFoundException", refused.getErrorCode());
+        assertEquals(404, refused.getHttpStatus());
+    }
+
+    @Test
+    void aBlockEncipheredUnderAnotherKeyDoesNotVerify() {
+        // The block is enciphered under one key and verified under another. The request is
+        // well made, so the answer is that the verification failed rather than that the
+        // request was wrong.
+        PaymentCryptographyKey pek = pinEncryptionKey();
+        PaymentCryptographyKey otherPek = pinEncryptionKey();
+        PaymentCryptographyKey pvk = visaVerificationKey();
+        Map<String, Object> generated = pin.generatePinData(request(Map.of(
+                "EncryptionKeyIdentifier", pek.getArn(),
+                "GenerationKeyIdentifier", pvk.getArn(),
+                "PinBlockFormat", "ISO_FORMAT_0",
+                "PrimaryAccountNumber", PAN,
+                "GenerationAttributes", visaPin(1))),
+                "us-east-1");
+        AwsException refused = assertThrows(AwsException.class, () -> pin.verifyPinData(request(Map.of(
+                "EncryptionKeyIdentifier", otherPek.getArn(),
+                "VerificationKeyIdentifier", pvk.getArn(),
+                "PinBlockFormat", "ISO_FORMAT_0",
+                "PrimaryAccountNumber", PAN,
+                "EncryptedPinBlock", generated.get("EncryptedPinBlock"),
+                "VerificationAttributes", visaPin(1, "1234"))),
+                "us-east-1"));
+        assertEquals("VerificationFailedException", refused.getErrorCode());
     }
 
     @Test

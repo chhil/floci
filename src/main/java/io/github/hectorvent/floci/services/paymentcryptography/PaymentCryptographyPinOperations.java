@@ -59,7 +59,7 @@ public class PaymentCryptographyPinOperations {
     private static final List<String> DERIVATION_USAGES = List.of(
             "TR31_B0_BASE_DERIVATION_KEY");
 
-    /** The index of the verification key: the Visa PVV names one of ten. */
+    /** The index of the verification key: the Visa PVV names one of seven keys. */
     private static final int MAX_VERIFICATION_KEY_INDEX = 6;
 
     /** The source of the random fill of the format 3 blocks and the format 4 pads. */
@@ -153,8 +153,12 @@ public class PaymentCryptographyPinOperations {
         try {
             pin = PinCrypto.decipherPinBlock(format, text(request, "EncryptedPinBlock"), pan,
                     pek.keyBytes);
-        } catch (RuntimeException e) {
-            throw validation("Unable to recover PIN from PIN block: " + e.getMessage());
+        } catch (IllegalArgumentException e) {
+            // The block did not decipher into a well-formed PIN field: the key is another one,
+            // or the block is not the one the caller meant. The request itself was well made,
+            // so this is a failed verification rather than a bad request.
+            throw verificationFailed("the PIN block did not decipher into a "
+                    + format.label() + " PIN field");
         }
         // A wrong key, or a wrong KSN, deciphers to garble. That is a failed verification, not
         // a server error.
@@ -239,7 +243,10 @@ public class PaymentCryptographyPinOperations {
                             + " hexadecimal characters (one " + format.label() + " block)");
             try {
                 pin = PinCrypto.decipherPinBlock(format, givenBlock, pan, pek.keyBytes);
-            } catch (RuntimeException e) {
+            } catch (IllegalArgumentException e) {
+                // The caller's block did not decipher into a well-formed PIN field under the
+                // key it named: the block and the key do not go together. The refusal is the
+                // caller's to act on.
                 throw validation("Unable to recover PIN from PIN block: " + e.getMessage());
             }
             if (!isRecoveredPin(pin)) {
@@ -253,6 +260,8 @@ public class PaymentCryptographyPinOperations {
         }
         String pvv = PinCrypto.computePvv(pan, pvki, pin, materialHex(pvk));
 
+        // The model's PinData is a union of the PIN offset and the verification value, and a
+        // union carries one of them: this is the verification value.
         Map<String, Object> pinData = new LinkedHashMap<>();
         pinData.put("VerificationValue", pvv);
         Map<String, Object> out = new LinkedHashMap<>();
@@ -349,9 +358,10 @@ public class PaymentCryptographyPinOperations {
                         + "a well-formed " + inFormat.label() + " PIN field");
             }
             pinBlock = PinCrypto.encipherPinBlock(outFormat, pin, outPan, out.keyBytes, random);
-        } catch (AwsException e) {
-            throw e;
-        } catch (RuntimeException e) {
+        } catch (IllegalArgumentException e) {
+            // The incoming block did not decipher into a well-formed PIN field under the
+            // incoming key: the caller's block and key do not go together. The refusal is the
+            // caller's to act on.
             throw validation("unable to translate PIN block: " + e.getMessage());
         }
 
@@ -429,7 +439,9 @@ public class PaymentCryptographyPinOperations {
         try {
             // A DUKPT PIN key is a TDES key, whatever the base derivation key is.
             return new PinLeg(key, DukptCrypto.pinKey(materialHex(key), ksn), false, "TDES");
-        } catch (RuntimeException e) {
+        } catch (IllegalArgumentException e) {
+            // The derivation refuses what the request names, so the refusal is the caller's to
+            // act on.
             throw validation("DUKPT derivation failed: " + e.getMessage());
         }
     }
@@ -585,7 +597,7 @@ public class PaymentCryptographyPinOperations {
     }
 
     private static AwsException notFound(String identifier) {
-        return new AwsException("ResourceNotFoundException", "Key not found: " + identifier, 400);
+        return new AwsException("ResourceNotFoundException", "Key not found: " + identifier, 404);
     }
 
     /**
@@ -595,6 +607,15 @@ public class PaymentCryptographyPinOperations {
      * answer is that the PIN is not the one the issuer holds.
      */
     private static AwsException verificationFailed() {
-        return new AwsException("VerificationFailedException", "the PIN verification failed", 400);
+        return verificationFailed("the PIN verification failed");
+    }
+
+    /**
+     * The PIN did not verify, and the reason why.
+     *
+     * @param reason why the verification did not hold
+     */
+    private static AwsException verificationFailed(String reason) {
+        return new AwsException("VerificationFailedException", reason, 400);
     }
 }

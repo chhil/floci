@@ -101,17 +101,6 @@ public final class Ciphers {
     /**
      * The Triple DES encryption of a block under a three-key key, in ECB mode.
      *
-     * @param block8 the eight-byte block to encrypt
-     * @param key24 the twenty-four-byte key
-     * @return the encrypted block
-     */
-    public static byte[] tdes3Encrypt(byte[] block8, byte[] key24) {
-        return block(new DESedeEngine(), true, block8, key24);
-    }
-
-    /**
-     * The Triple DES encryption of a block under a key, in ECB mode.
-     *
      * <p>The two-key form is K1||K2, and the cipher takes the three keys K1||K2||K1, which
      * is what the two-key form means. A three-key key is taken as it is.
      *
@@ -119,12 +108,15 @@ public final class Ciphers {
      * @param key the sixteen- or twenty-four-byte key
      * @return the encrypted block
      */
-    public static byte[] tdesEcbEncrypt(byte[] block8, byte[] key) {
+    public static byte[] tdes3Encrypt(byte[] block8, byte[] key) {
         return block(new DESedeEngine(), true, block8, key);
     }
 
     /**
      * The Triple DES decryption of a block under a key, in ECB mode.
+     *
+     * <p>The two-key form is K1||K2, and the cipher takes the three keys K1||K2||K1, which
+     * is what the two-key form means. A three-key key is taken as it is.
      *
      * @param block8 the eight-byte block to decrypt
      * @param key the sixteen- or twenty-four-byte key

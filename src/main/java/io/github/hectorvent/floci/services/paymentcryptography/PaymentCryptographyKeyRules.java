@@ -16,7 +16,9 @@ import java.util.Map;
  * operation is, so they are asked in one place.
  *
  * <p>A key that does not satisfy a rule is refused with the error that names it, so a caller
- * is told which of the key's attributes is wrong rather than that the request failed.
+ * is told which of the key's attributes is wrong rather than that the request failed. The
+ * refusal is a {@code ValidationException}, which is the error the data plane's model
+ * states for a request that is well made but that the service will not serve.
  */
 final class PaymentCryptographyKeyRules {
 
@@ -33,7 +35,7 @@ final class PaymentCryptographyKeyRules {
      */
     static void requireEnabled(PaymentCryptographyKey key) {
         if (!key.isEnabled()) {
-            throw new AwsException("InvalidKeyUsageException",
+            throw new AwsException("ValidationException",
                     "the key " + key.getArn() + " is disabled", 400);
         }
     }
@@ -59,7 +61,7 @@ final class PaymentCryptographyKeyRules {
             return;
         }
         if (!Boolean.TRUE.equals(modes.get(mode))) {
-            throw new AwsException("InvalidKeyUsageException",
+            throw new AwsException("ValidationException",
                     "the key " + key.getArn() + " does not have the mode of use " + mode
                             + ", which it needs to " + what, 400);
         }
@@ -82,7 +84,7 @@ final class PaymentCryptographyKeyRules {
         if (usage == null || usages.contains(usage)) {
             return;
         }
-        throw new AwsException("InvalidKeyUsageException",
+        throw new AwsException("ValidationException",
                 "the key " + key.getArn() + " is of the usage " + usage + ", and it may not be used to "
                         + what + ", which needs a key of the usage " + String.join(" or ", usages), 400);
     }
@@ -99,7 +101,7 @@ final class PaymentCryptographyKeyRules {
      */
     static void requireFamily(PaymentCryptographyKey key, boolean aes, String what) {
         if (PaymentCryptographyService.isAes(key) != aes) {
-            throw new AwsException("InvalidKeyUsageException",
+            throw new AwsException("ValidationException",
                     "the key " + key.getArn() + " is a " + key.getKeyAlgorithm() + " key, and "
                             + what + " needs a " + (aes ? "AES" : "Triple DES") + " one", 400);
         }

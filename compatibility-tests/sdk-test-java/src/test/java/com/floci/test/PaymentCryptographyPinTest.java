@@ -85,6 +85,9 @@ class PaymentCryptographyPinTest {
 
         PinData pinData = generated.pinData();
         assertThat(pinData.verificationValue()).isNotBlank();
+        // The model's PinData is a union, and the discriminator says which of its two
+        // members the answer carries: this one carries the verification value.
+        assertThat(pinData.type()).isEqualTo(PinData.Type.VERIFICATION_VALUE);
 
         // The block verifies against the verification value that goes with it.
         client.verifyPinData(r -> r

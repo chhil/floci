@@ -186,6 +186,11 @@ public final class PinCrypto {
      * value, then the PAN digits, then zero padding to 32 nibbles. A PAN
      * shorter than 12 digits is right justified and padded to the left with
      * zeros, and M is then zero.
+     *
+     * <p>The field carries the whole PAN, the check digit included, which is
+     * what the standard says: the format 4 PAN field is the complete PAN,
+     * where the account field of the formats 0 and 3 is the twelve right-most
+     * digits without the check digit.
      */
     public static byte[] iso4PanField(String pan) {
         String d = digits(pan);
@@ -285,10 +290,10 @@ public final class PinCrypto {
                                           byte[] key, Random random) {
         switch (format) {
             case ISO_FORMAT_0:
-                return HEX.formatHex(Ciphers.tdesEcbEncrypt(
+                return HEX.formatHex(Ciphers.tdes3Encrypt(
                         HEX.parseHex(iso0PinBlock(pin, pan)), key));
             case ISO_FORMAT_3:
-                return HEX.formatHex(Ciphers.tdesEcbEncrypt(
+                return HEX.formatHex(Ciphers.tdes3Encrypt(
                         HEX.parseHex(iso3PinBlock(pin, pan, random)), key));
             case ISO_FORMAT_4:
                 return iso4PinBlock(pin, pan, key, random);
