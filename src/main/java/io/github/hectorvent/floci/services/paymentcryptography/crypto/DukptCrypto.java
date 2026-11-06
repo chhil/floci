@@ -12,10 +12,13 @@ import java.util.HexFormat;
  *   3. Working-key variant    derived key XOR mask     -&gt; MAC-request key
  * </pre>
  *
- * <p>Validated against two independent published vector sets: the classic
- * X9.24 walkthrough, and the ID TECH worked example. TDES only - AES DUKPT
- * (X9.24-3) is out of scope, so the parity is checked against published
- * vectors.
+ * <p>Validated against the vectors ANSI X9.24-1 publishes, which the test holds: the
+ * initial sequence of the standard's annex A.4.2. TDES only: AES DUKPT (X9.24-3) is
+ * out of scope.
+ *
+ * <p>The odd parity the standard puts on the key bytes is not enforced here. The cipher
+ * ignores the parity bits, and the published vectors carry parity-bearing keys, so the
+ * derivation holds for the keys the standard defines.
  */
 public final class DukptCrypto {
 
