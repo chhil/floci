@@ -191,12 +191,13 @@ public final class Ciphers {
     }
 
     /**
-     * The ISO 9797-1 MAC algorithm 3 over Triple DES, with padding method 1.
+     * The ISO 9797-1 MAC algorithm 3, the retail MAC, over a double-length DES key,
+     * with padding method 1.
      *
      * <p>Algorithm 3 is the retail MAC: a single-DES chain under K1 for all but the
      * last block, then a final EDE under K1||K2.
      *
-     * @param key16 the sixteen-byte key
+     * @param key16 the sixteen-byte key, K1||K2
      * @param data the message to authenticate
      * @return the eight-byte MAC
      */
