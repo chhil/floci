@@ -592,7 +592,10 @@ public class PaymentCryptographyCryptoHandler {
             byte[] derived;
             try {
                 derived = DukptCrypto.macKey(materialHex(key), ksn);
-            } catch (RuntimeException e) {
+            } catch (IllegalArgumentException e) {
+                // The derivation refuses what the request names, so the refusal is the
+                // caller's to act on. Anything else is a fault of the service and is
+                // left to travel as one.
                 throw new AwsException("ValidationException",
                         "DUKPT derivation failed: " + e.getMessage(), 400);
             }

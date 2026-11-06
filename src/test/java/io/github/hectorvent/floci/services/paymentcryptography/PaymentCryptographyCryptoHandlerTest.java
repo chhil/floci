@@ -474,6 +474,24 @@ class PaymentCryptographyCryptoHandlerTest {
     }
 
     @Test
+    void aDukptMacUnderASerialNumberTheDerivationDoesNotTakeRefuses() {
+        // The model takes a serial number of sixteen, twenty or twenty-four hexadecimal
+        // digits, and the derivation takes one of ten bytes, so a longer one is refused by
+        // the derivation and not by the model.
+        PaymentCryptographyKey key = createBaseDerivationKey("TDES_2KEY", "DeriveKey");
+        JsonNode attributes = dukpt("DukptIso9797Algorithm1");
+        ((ObjectNode) attributes.path("DukptIso9797Algorithm1"))
+                .put("KeySerialNumber", "987654321098765432109876");
+
+        AwsException refused = assertThrows(AwsException.class, () -> handler.generateMac(request(Map.of(
+                "KeyIdentifier", key.getArn(), "MessageData", hex("a message".getBytes()), "MacLength", 8,
+                "GenerationAttributes", attributes)), "us-east-1"));
+
+        assertEquals("ValidationException", refused.getErrorCode());
+        assertTrue(refused.getMessage().contains("DUKPT derivation failed"), refused.getMessage());
+    }
+
+    @Test
     void aKeyReEncryptsUnderAnotherKey() {
         PaymentCryptographyKey incoming = createKey("Encrypt", "Decrypt");
         PaymentCryptographyKey outgoing = createKey("Encrypt", "Decrypt");
