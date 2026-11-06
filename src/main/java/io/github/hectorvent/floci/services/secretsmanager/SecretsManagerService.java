@@ -1692,15 +1692,40 @@ public class SecretsManagerService implements ResourceProvider {
 
     private void executeRotationLifecycle(String secretArn, String clientRequestToken, String lambdaArn, boolean rotateImmediately, boolean isExistingVersion, String region) {
         if (!rotateImmediately) {
-            invokeRotationLambda(secretArn, clientRequestToken, lambdaArn, "testSecret", region);
+            // AWS tests the configuration against an AWSPENDING version it creates and then removes.
+            // Without a Lambda there is no test step, so there is nothing to stage.
+            boolean staged = lambdaService != null && !isExistingVersion
+                    && stagePendingVersion(secretArn, clientRequestToken, region);
+            try {
+                invokeRotationLambda(secretArn, clientRequestToken, lambdaArn, "testSecret", region);
+            } finally {
+                if (staged) {
+                    removeUntouchedPlaceholder(secretArn, clientRequestToken, region);
+                }
+            }
 
             synchronized (lockFor(secretArn)) {
+                // Only this rotation's own version, or the current one a finished rotation left
+                // AWSPENDING on: a version another rotation or client staged keeps its stage.
                 Secret refreshed = resolveSecret(secretArn, region);
-                SecretVersion pending = findVersionByStage(refreshed, "AWSPENDING");
-                if (pending != null) {
-                    List<String> stages = new ArrayList<>(pending.getVersionStages());
-                    stages.remove("AWSPENDING");
-                    pending.setVersionStages(stages);
+                List<SecretVersion> retirable = new ArrayList<>();
+                if (refreshed.getVersions() != null && refreshed.getVersions().containsKey(clientRequestToken)) {
+                    retirable.add(refreshed.getVersions().get(clientRequestToken));
+                }
+                SecretVersion current = findVersionByStage(refreshed, AWSCURRENT);
+                if (current != null) {
+                    retirable.add(current);
+                }
+                boolean retired = false;
+                for (SecretVersion version : retirable) {
+                    if (version.getVersionStages() != null && version.getVersionStages().contains("AWSPENDING")) {
+                        List<String> stages = new ArrayList<>(version.getVersionStages());
+                        stages.remove("AWSPENDING");
+                        version.setVersionStages(stages);
+                        retired = true;
+                    }
+                }
+                if (retired) {
                     persist(refreshed, region);
                 }
             }
@@ -1709,22 +1734,7 @@ public class SecretsManagerService implements ResourceProvider {
 
         try {
             if (!isExistingVersion) {
-                synchronized (lockFor(secretArn)) {
-                    Secret secret = resolveSecret(secretArn, region);
-                    if (secret.getVersions() != null && secret.getVersions().containsKey(clientRequestToken)) {
-                        isExistingVersion = true;
-                    } else {
-                        SecretVersion pendingVersion = new SecretVersion();
-                        pendingVersion.setVersionId(clientRequestToken);
-                        pendingVersion.setVersionStages(List.of("AWSPENDING"));
-                        pendingVersion.setCreatedDate(Instant.now());
-                        if (secret.getVersions() == null) {
-                            secret.setVersions(new HashMap<>());
-                        }
-                        secret.getVersions().put(clientRequestToken, pendingVersion);
-                        persist(secret, region);
-                    }
-                }
+                isExistingVersion = !stagePendingVersion(secretArn, clientRequestToken, region);
             }
             if (!isExistingVersion) {
                 invokeRotationLambda(secretArn, clientRequestToken, lambdaArn, "createSecret", region);
@@ -1741,6 +1751,43 @@ public class SecretsManagerService implements ResourceProvider {
         } catch (Exception e) {
             LOG.errorv(e, "Error during rotation steps for secret {0}", secretArn);
             throw e;
+        }
+    }
+
+    /**
+     * Adds an empty AWSPENDING version under the rotation token, unless a version with that id
+     * already exists. Returns whether it added one.
+     */
+    private boolean stagePendingVersion(String secretArn, String clientRequestToken, String region) {
+        synchronized (lockFor(secretArn)) {
+            Secret secret = resolveSecret(secretArn, region);
+            if (secret.getVersions() != null && secret.getVersions().containsKey(clientRequestToken)) {
+                return false;
+            }
+            SecretVersion pendingVersion = new SecretVersion();
+            pendingVersion.setVersionId(clientRequestToken);
+            pendingVersion.setVersionStages(List.of("AWSPENDING"));
+            pendingVersion.setCreatedDate(Instant.now());
+            if (secret.getVersions() == null) {
+                secret.setVersions(new HashMap<>());
+            }
+            secret.getVersions().put(clientRequestToken, pendingVersion);
+            persist(secret, region);
+            return true;
+        }
+    }
+
+    /** Removes the version {@link #stagePendingVersion} added, unless it has since gained a value or another stage. */
+    private void removeUntouchedPlaceholder(String secretArn, String versionId, String region) {
+        synchronized (lockFor(secretArn)) {
+            Secret secret = resolveSecret(secretArn, region);
+            SecretVersion version = secret.getVersions() == null ? null : secret.getVersions().get(versionId);
+            if (version == null || version.getSecretString() != null || version.getSecretBinary() != null
+                    || version.getVersionStages().stream().anyMatch(stage -> !"AWSPENDING".equals(stage))) {
+                return;
+            }
+            secret.getVersions().remove(versionId);
+            persist(secret, region);
         }
     }
 
