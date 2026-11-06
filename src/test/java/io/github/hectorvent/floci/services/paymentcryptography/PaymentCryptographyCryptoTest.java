@@ -148,6 +148,21 @@ class PaymentCryptographyCryptoTest {
     }
 
     @Test
+    void theIso9797MacOfAMessageThatFillsItsBlocksIsTheOneFipsPub113Publishes() {
+        // The published example pads its text with zeroes to a whole block, and that padded
+        // text is the example's own fourth block. A text that already fills its blocks is
+        // padded with nothing, so the two give one MAC.
+        byte[] key = PaymentCryptographyCrypto.fromHex("0123456789ABCDEF0123456789ABCDEF");
+        byte[] padded = PaymentCryptographyCrypto.fromHex(
+                "37363534333231204e6f77206973207468652074696d6520666f722000000000");
+
+        assertEquals("f1d30f6849312ca4",
+                PaymentCryptographyCrypto.toHex(Ciphers.iso9797Alg1(key, padded)));
+        assertEquals("f1d30f6849312ca4",
+                PaymentCryptographyCrypto.toHex(Ciphers.iso9797Alg3(key, padded)));
+    }
+
+    @Test
     void theIso9797MacsAreTheOnesAnotherImplementationComputed() {
         // The two-key regression locks, which are the distinct-halves path the published
         // example does not reach.

@@ -7,7 +7,6 @@ import org.bouncycastle.crypto.engines.DESedeEngine;
 import org.bouncycastle.crypto.macs.CBCBlockCipherMac;
 import org.bouncycastle.crypto.macs.ISO9797Alg3Mac;
 import org.bouncycastle.crypto.modes.CBCBlockCipher;
-import org.bouncycastle.crypto.paddings.ZeroBytePadding;
 import org.bouncycastle.crypto.params.KeyParameter;
 import org.bouncycastle.crypto.params.ParametersWithIV;
 
@@ -177,12 +176,18 @@ public final class Ciphers {
      * <p>Algorithm 1 is the CBC mode's chain over the zero-padded message, so the last
      * block it leaves is the MAC.
      *
+     * <p>Padding method 1 pads the message with zeroes only when it does not already fill
+     * its blocks: a message that fills them is chained as it is, and no block is added.
+     *
      * @param key16 the sixteen-byte key
      * @param data the message to authenticate
      * @return the eight-byte MAC
      */
     public static byte[] iso9797Alg1(byte[] key16, byte[] data) {
-        CBCBlockCipherMac mac = new CBCBlockCipherMac(new DESedeEngine(), 64, new ZeroBytePadding());
+        // The MAC without a padding of its own pads the last block with zeroes, which is
+        // padding method 1. A padder that fills a whole block would chain an empty one
+        // after a message that already fills its blocks, which the standard does not do.
+        CBCBlockCipherMac mac = new CBCBlockCipherMac(new DESedeEngine(), 64);
         mac.init(new ParametersWithIV(new KeyParameter(key16), new byte[8]));
         mac.update(data, 0, data.length);
         byte[] out = new byte[mac.getMacSize()];
