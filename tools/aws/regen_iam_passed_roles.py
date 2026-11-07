@@ -478,6 +478,10 @@ def _takes_name(name: str, member: dict, model: dict) -> bool:
     """Whether the member takes a role by name: it is named for one, or its documentation says it takes
     one, unless its pattern only admits an ARN."""
     shape = _leaf(model, member["shape"])
+    if shape is None:
+        # A member that holds no string takes no role by name. The caller only asks about a
+        # member that holds one, so this is the answer the question has anyway.
+        return False
     if shape.get("pattern", "").lstrip("^").startswith("arn:"):
         return False
     return bool(ROLE_NAME_MEMBER_RE.search(name) or BY_NAME_DOC_RE.search(_documentation(member, shape)))
@@ -821,7 +825,11 @@ def main(argv: list[str] | None = None) -> int:
         if not args.output.exists():
             print(f"error: {args.output} does not exist", file=sys.stderr)
             return 1
-        document = json.loads(args.output.read_text(encoding="utf-8"))
+        try:
+            document = json.loads(args.output.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            print(f"error: {_shown(args.output)} could not be read ({error})", file=sys.stderr)
+            return 1
         problems = validate(document)
         if not problems and args.check:
             data, _ = resolve_botocore_data(args.botocore_data)

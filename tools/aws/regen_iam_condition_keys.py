@@ -46,7 +46,9 @@ BY_HAND = {
     ("iam:CreateServiceSpecificCredential", "iam:ServiceSpecificCredentialServiceName"): "ServiceName",
 }
 # The botocore types a BY_HAND member may have for each key type; the context value is the member's text.
-BY_HAND_TYPES = {"String": {"string", "integer"}, "ARN": {"string"}, "Numeric": {"integer", "long"}}
+# A key the reference gives no types for is None, and no type fits it.
+BY_HAND_TYPES: dict[str | None, set[str]] = {
+    "String": {"string", "integer"}, "ARN": {"string"}, "Numeric": {"integer", "long"}}
 # Keys whose value, on an action without the member, is the stored target's: the IAM User Guide's
 # iam:PermissionsBoundary "checks that the specified policy is attached as permissions boundary on the
 # IAM principal resource". The target is the role or user the request names.
@@ -106,7 +108,8 @@ def member_type(model, operation, path):
         shape = model["shapes"][member["shape"]]
     return shape["type"]
 
-def classify(pairs, types, model, resource_types=None):
+def classify(pairs: list, types: dict, model: dict,
+             resource_types: dict | None = None) -> tuple[list, list, list]:
     """The read, fromTarget and notRead entries for the reference's pairs."""
     resource_types = resource_types or {}
     read, from_target, not_read = [], [], []
@@ -231,7 +234,11 @@ def main(argv=None):
     parser.add_argument("--botocore-data", type=Path)
     args = parser.parse_args(argv)
     if args.check:
-        document = json.loads(OUTPUT.read_text())
+        try:
+            document = json.loads(OUTPUT.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            print(f"error: {OUTPUT} could not be read ({error})", file=sys.stderr)
+            return 1
         pairs = pairs_of(document)
         if len(set(pairs)) != len(pairs):
             raise ValueError("an IAM condition key pair is listed twice")
@@ -255,7 +262,11 @@ def main(argv=None):
         return 2
     pairs, types = action_keys(reference)
     if args.verify:
-        document = json.loads(OUTPUT.read_text())
+        try:
+            document = json.loads(OUTPUT.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            print(f"error: {OUTPUT} could not be read ({error})", file=sys.stderr)
+            return 1
         vendored = set(pairs_of(document))
         for action, key in sorted(set(pairs) - vendored):
             print(f"AWS lists {key} on {action}, which the table does not name", file=sys.stderr)

@@ -83,8 +83,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from regen_iam_authorized_actions import fetch_references
-from regen_iam_passed_roles import (BODY_LOCATIONS, MEMBER_PATH_RE, NAMESPACE_RE, OPERATION_RE, _shown, load_models,
-                                    namespace_of)
+from regen_iam_passed_roles import (
+    BODY_LOCATIONS,
+    MEMBER_PATH_RE,
+    NAMESPACE_RE,
+    OPERATION_RE,
+    _shown,
+    load_models,
+    namespace_of,
+)
 from regen_partitions import resolve_botocore_data
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -540,7 +547,9 @@ def validate(document: dict) -> list[str]:
 
 
 def _member_problems(operation: str, member: object) -> list[str]:
-    path = member.get("member") if isinstance(member, dict) else None
+    if not isinstance(member, dict):
+        return [f"{operation} reads {member!r}, which is no path to a tag list or map"]
+    path = member.get("member")
     if not isinstance(path, str) or not MEMBER_PATH_RE.match(path) or not re.search(r"(\[\w*]|\{})$", path):
         return [f"{operation} reads {member!r}, which is no path to a tag list or map"]
     problems = []
@@ -622,7 +631,11 @@ def main(argv: list[str] | None = None) -> int:
         if not args.output.exists():
             print(f"error: {args.output} does not exist", file=sys.stderr)
             return 1
-        document = json.loads(args.output.read_text(encoding="utf-8"))
+        try:
+            document = json.loads(args.output.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            print(f"error: {_shown(args.output)} could not be read ({error})", file=sys.stderr)
+            return 1
         problems = validate(document)
         if not problems and args.check:
             data, _ = resolve_botocore_data(args.botocore_data)
